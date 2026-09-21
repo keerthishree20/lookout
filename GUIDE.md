@@ -557,5 +557,6 @@ SSE connection stays open. Browser tests must wait on `domcontentloaded`.
 Backend   Python 3.12 · FastAPI · Pydantic v2 · sse-starlette · scikit-learn · numpy
 Crypto    ML-DSA-65 (dilithium-py) · ML-KEM-768 (kyber-py) · AES-256-GCM · HKDF · Ed25519/X25519 fallback
 Frontend  Next.js 16 · React 19 · Tailwind CSS 4 · lucide-react
-Testing   pytest (145) · Playwright (manual browser checks) · GitHub Actions
+Testing   pytest (145) · GitHub Actions
+          (the browser checks in section 17 used Playwright from outside this repo; they are not part of the suite)
 ```
