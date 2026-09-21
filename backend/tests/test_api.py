@@ -6,7 +6,12 @@ from lookout.api import app
 
 @pytest.fixture(scope="module")
 def client():
+    """Signed in as the SOC analyst: every console route requires it."""
     with TestClient(app) as c:
+        token = c.post(
+            "/api/auth/login", json={"username": "soc.analyst", "password": "SocWatch@2026"}
+        ).json()["token"]
+        c.headers.update({"Authorization": f"Bearer {token}"})
         yield c
 
 

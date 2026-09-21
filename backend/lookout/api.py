@@ -7,6 +7,15 @@ month of synthetic history to build baselines and fit the behavioural model,
 then (unless ``LOOKOUT_LIVE_TRAFFIC=0``) keeps a trickle of ordinary staff
 activity flowing so the console shows a working bank rather than an empty room.
 Scenarios are injected into that same stream.
+
+Two audiences, two sets of routes:
+
+* ``/api/auth/*`` and ``/api/portal/*`` -- the employee portal. Employees sign
+  in, browse the (masked) customer book and export PDFs. Every sign-in and
+  every export is an event scored by the same engine as everything else.
+* everything else under ``/api/`` -- the SOC console, which requires a SOC
+  analyst's session. Enforced once, in middleware, so a new route cannot be
+  left open by forgetting a decorator.
 """
 
 from __future__ import annotations
@@ -20,17 +29,33 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 from . import scenarios as scenario_mod
+from .auth import DEMO_ACCOUNTS, AuthStore, Session
+from .customers import customer_book, masked
 from .evaluate import run_evaluation
 from .generator import BY_ACTOR, CITIES, generate_history
-from .models import Action, Decision, Event, MessagePayload
+from .models import Action, ActionTaken, Decision, Event, MessagePayload
 from .narrator import Narrator
 from .pipeline import Engine
+from .portal import (
+    HONEYPOT_THRESHOLD,
+    MAX_EXPORT,
+    ExportLedger,
+    ExportRecord,
+    choose_rows,
+    export_filename,
+    is_suspicious,
+    new_doc_ref,
+    now_utc,
+    poison,
+    render_pdf,
+)
 from .urlcheck import inspect_url
 
 URL_PATTERN = re.compile(r"(?:https?://|www\.)[^\s<>\"']+", re.IGNORECASE)
@@ -51,6 +76,8 @@ class AppState:
         self.traffic_round = 0
         self.traffic_paused = False
         self.evaluation: dict[str, Any] | None = None
+        self.book = customer_book()
+        self.ledger = ExportLedger()
 
     @staticmethod
     def _build_engine() -> Engine:
@@ -83,11 +110,18 @@ class AppState:
 
 
 state: AppState | None = None
+#: Outside AppState on purpose: a demo reset must not sign everyone out.
+auth: AuthStore | None = None
 
 
 def get_state() -> AppState:
     assert state is not None, "app not started"
     return state
+
+
+def get_auth() -> AuthStore:
+    assert auth is not None, "app not started"
+    return auth
 
 
 async def _traffic_loop(interval: float) -> None:
@@ -104,8 +138,10 @@ async def _traffic_loop(interval: float) -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    global state
+    global state, auth
     state = await asyncio.to_thread(AppState)
+    if auth is None:
+        auth = await asyncio.to_thread(AuthStore)
     task = None
     if os.getenv("LOOKOUT_LIVE_TRAFFIC", "1") != "0":
         interval = float(os.getenv("LOOKOUT_TRAFFIC_INTERVAL", "1.5"))
@@ -124,6 +160,46 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+#: Routes any visitor may call. Everything else under /api/ needs a SOC session.
+PUBLIC_PREFIXES = ("/api/health", "/api/auth/", "/api/portal/")
+
+
+def _token(request: Request) -> str | None:
+    header = request.headers.get("authorization", "")
+    if header.lower().startswith("bearer "):
+        return header[7:].strip()
+    # EventSource cannot set headers, so the live stream passes it as a query.
+    return request.query_params.get("token")
+
+
+@app.middleware("http")
+async def soc_only(request: Request, call_next):
+    """Registered before CORS, so CORS wraps it and a 401 still carries the
+    headers the browser needs to read it."""
+    path = request.url.path
+    if (
+        request.method == "OPTIONS"
+        or not path.startswith("/api/")
+        or path.startswith(PUBLIC_PREFIXES)
+    ):
+        return await call_next(request)
+    session = get_auth().get(_token(request))
+    if session is None:
+        return JSONResponse({"detail": "sign in as a SOC analyst"}, status_code=401)
+    if session.kind != "soc":
+        return JSONResponse({"detail": "SOC access only"}, status_code=403)
+    return await call_next(request)
+
+
+def require_employee(request: Request) -> Session:
+    session = get_auth().get(_token(request))
+    if session is None:
+        raise HTTPException(401, "sign in required")
+    if session.kind != "employee":
+        raise HTTPException(403, "employee portal only")
+    return session
+
+
 _origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
@@ -131,6 +207,8 @@ app.add_middleware(
     allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
+    # Without this the browser hides the export's filename from the page.
+    expose_headers=["Content-Disposition"],
 )
 
 
@@ -164,6 +242,8 @@ def stats() -> dict[str, Any]:
         **s.engine.stats(),
         "clock": s.clock.isoformat(),
         "traffic_paused": s.traffic_paused,
+        "exports": len(s.ledger.records),
+        "honeypots_served": len(s.ledger.honeypots()),
     }
 
 
@@ -452,3 +532,250 @@ async def evaluation(refresh: bool = False) -> dict[str, Any]:
         report = await asyncio.to_thread(run_evaluation)
         s.evaluation = report.as_dict()
     return s.evaluation
+
+
+# --------------------------------------------------------------------------- #
+# Sign-in (public)
+# --------------------------------------------------------------------------- #
+
+
+def _portal_event(staff, action: Action, s: AppState, session_id: str, **meta) -> Event:
+    """An event from an employee at their usual desk. The portal runs on the
+    bank's intranet, so location and device are the employee's own; what they
+    *do* is what gets scored."""
+    ts = s.clock + timedelta(seconds=30)
+    s.advance(ts)
+    return Event(
+        event_id=str(uuid.uuid4()),
+        ts=ts,
+        actor=staff.actor,
+        actor_role=staff.role,
+        action=action,
+        resource=meta.pop("resource", ""),
+        source_ip=f"{staff.ip_prefix}.60",
+        device_id=staff.device,
+        geo=CITIES[staff.city],
+        success=action is not Action.LOGIN_FAILED,
+        meta={"session_id": session_id, "via": "portal", **meta},
+    )
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/api/auth/login")
+def login(body: LoginRequest) -> dict[str, Any]:
+    """Every employee sign-in -- including every wrong password -- is an event
+    in the pipeline, so guessing at a colleague's account trips the same
+    failed-login-burst and credential-misuse detectors as any other attack."""
+    a, s = get_auth(), get_state()
+    username = body.username.strip()
+    staff = BY_ACTOR.get(username)
+    ok = a.verify(username, body.password)
+
+    if not ok:
+        if staff is not None:
+            s.engine.ingest(
+                _portal_event(staff, Action.LOGIN_FAILED, s, session_id="", resource="portal")
+            )
+        elif a.kind_of(username) == "soc":
+            s.engine.audit.append("auth.soc_login_failed", {"username": username})
+        raise HTTPException(401, "wrong username or password")
+
+    session = a.open_session(username)
+    if staff is not None:
+        decision = s.engine.ingest(
+            _portal_event(staff, Action.LOGIN, s, session.session_id, resource="portal")
+        )
+        if decision.action_taken in (ActionTaken.BLOCK, ActionTaken.BLOCK_AND_ALERT):
+            a.close(session.token)
+            raise HTTPException(403, "sign-in blocked by security policy")
+    else:
+        s.engine.audit.append("auth.soc_login", {"username": username})
+
+    return {"token": session.token, "kind": session.kind, "profile": session.profile}
+
+
+@app.post("/api/auth/logout")
+def logout(request: Request) -> dict[str, Any]:
+    token = _token(request)
+    if token:
+        get_auth().close(token)
+    return {"ok": True}
+
+
+@app.get("/api/auth/me")
+def me(request: Request) -> dict[str, Any]:
+    session = get_auth().get(_token(request))
+    if session is None:
+        raise HTTPException(401, "not signed in")
+    return {"kind": session.kind, "profile": session.profile}
+
+
+@app.get("/api/auth/demo-accounts")
+def demo_accounts() -> list[dict[str, str]]:
+    """The demo credentials, for the sign-in page. This is a simulated bank;
+    set LOOKOUT_SHOW_DEMO_ACCOUNTS=0 to hide them."""
+    if os.getenv("LOOKOUT_SHOW_DEMO_ACCOUNTS", "1") != "1":
+        return []
+    out = []
+    for username, password, kind in DEMO_ACCOUNTS:
+        staff = BY_ACTOR.get(username)
+        out.append(
+            {
+                "username": username,
+                "password": password,
+                "kind": kind,
+                "role": staff.role.value if staff else "soc_analyst",
+                "city": staff.city if staff else "Chennai SOC",
+            }
+        )
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Employee portal
+# --------------------------------------------------------------------------- #
+
+
+@app.get("/api/portal/customers")
+def portal_customers(
+    q: str = "",
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=MAX_EXPORT),
+    session: Session = Depends(require_employee),
+) -> dict[str, Any]:
+    """The customer book as an employee sees it: PII masked."""
+    book = get_state().book
+    needle = q.strip().lower()
+    rows = [c for c in book if not needle or needle in c.name.lower() or needle in c.customer_id.lower() or needle in c.city.lower()]
+    return {
+        "total": len(rows),
+        "rows": [masked(c) for c in rows[offset : offset + limit]],
+        "max_export": MAX_EXPORT,
+    }
+
+
+class ExportRequest(BaseModel):
+    count: int = Field(10, ge=1, le=MAX_EXPORT)
+    customer_ids: list[str] | None = None
+
+
+@app.post("/api/portal/export")
+def portal_export(body: ExportRequest, session: Session = Depends(require_employee)) -> Response:
+    """Export customer records as a PDF -- or, if the request is suspicious, a
+    decoy that is indistinguishable from one.
+
+    The response is byte-for-byte the same *kind* of thing either way: same
+    status, same headers, same filename pattern. Nothing in it tells the
+    employee which they got.
+    """
+    s = get_state()
+    staff = BY_ACTOR[session.username]
+    rows = choose_rows(s.book, body.customer_ids, body.count)
+    if not rows:
+        raise HTTPException(400, "no matching customers")
+
+    decision = s.engine.ingest(
+        _portal_event(
+            staff, Action.DB_QUERY, s, session.session_id,
+            resource="core.customers", record_count=len(rows), export="pdf",
+        )
+    )
+    suspicious, reason = is_suspicious(
+        len(rows), decision.action_taken.value, caught=s.ledger.caught(staff.actor)
+    )
+
+    generated = now_utc()
+    doc_ref = new_doc_ref()
+    filename = export_filename(staff.actor, generated)
+    file_rows = poison(rows, s.book) if suspicious else rows
+    pdf = render_pdf(file_rows, actor=staff.actor, doc_ref=doc_ref, generated=generated)
+
+    canaries = [c.account_no for c in file_rows] if suspicious else []
+    entry = s.engine.audit.append(
+        "export.decoy_served" if suspicious else "export.genuine",
+        {
+            "actor": staff.actor,
+            "role": staff.role.value,
+            "doc_ref": doc_ref,
+            "records": len(rows),
+            "reason": reason,
+            "risk_total": decision.risk.total,
+            "canary_accounts": len(canaries),
+        },
+        critical=suspicious,
+    )
+    s.ledger.add(
+        ExportRecord(
+            doc_ref=doc_ref,
+            actor=staff.actor,
+            role=staff.role.value,
+            requested=len(rows),
+            decoy=suspicious,
+            reason=reason,
+            ts=generated,
+            risk_total=decision.risk.total,
+            action_taken=decision.action_taken.value,
+            audit_seq=entry.seq,
+            filename=filename,
+            canaries=canaries,
+            customer_ids=[c.customer_id for c in rows],
+        )
+    )
+    if suspicious:
+        # The risk engine treats the rest of this session as coming from
+        # someone already caught taking data.
+        s.engine.ctx.strike(session.session_id)
+
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Honeypot (SOC)
+# --------------------------------------------------------------------------- #
+
+
+@app.get("/api/honeypots")
+def honeypots() -> dict[str, Any]:
+    s = get_state()
+    return {
+        "threshold": HONEYPOT_THRESHOLD,
+        "watchlist": s.ledger.watchlist(),
+        "served": [r.as_dict() for r in s.ledger.honeypots()],
+        "exports": [r.as_dict(include_canaries=False) for r in reversed(s.ledger.records)][:50],
+    }
+
+
+class ClearRequest(BaseModel):
+    reviewer: str
+
+
+@app.post("/api/honeypots/watchlist/{actor}/clear")
+def clear_watchlist(actor: str, body: ClearRequest) -> dict[str, Any]:
+    """The SOC has investigated and the employee may see real data again.
+    Audited, because lifting a trap is a decision someone must own."""
+    s = get_state()
+    if not s.ledger.clear(actor):
+        raise HTTPException(404, "not on the watchlist")
+    s.engine.audit.append(
+        "honeypot.watchlist_cleared", {"actor": actor, "reviewer": body.reviewer}, critical=True
+    )
+    return {"cleared": actor, "by": body.reviewer}
+
+
+@app.get("/api/honeypots/trace")
+def trace(q: str = Query(..., min_length=4)) -> dict[str, Any]:
+    """Who took this file? Accepts the document reference from a PDF footer or
+    any account number found in a leaked copy."""
+    hit = get_state().ledger.trace(q)
+    if hit is None:
+        return {"found": False, "query": q}
+    matched_by, rec = hit
+    return {"found": True, "query": q, "matched_by": matched_by, "export": rec.as_dict()}

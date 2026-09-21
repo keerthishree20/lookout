@@ -29,6 +29,50 @@ event ─► baseline lookup ─► 16 detectors + IsolationForest ─► fused,
 | Explainable AI | every signal carries a sentence and its points; the console shows the arithmetic |
 | Message scanning, risk score, bulk fraud, privileged comms, quarantine | `urlcheck.py` + `rules/messaging.py` + `POST /api/messages/scan` |
 
+## Portals and sign-in
+
+| Page | Who | What it does |
+|---|---|---|
+| `/login` | everyone | sign in; lists the demo accounts below |
+| `/employee` | the 12 employees | browse the customer book (PII masked) and export customers as a PDF |
+| `/soc` | the SOC analyst | the console: live decisions, honeypot alerts, gateway, audit, evaluation |
+
+Demo credentials (a simulated bank; passwords are stored as salted PBKDF2 hashes):
+
+| # | Username | Password | Role |
+|---|---|---|---|
+| — | `soc.analyst` | `SocWatch@2026` | SOC analyst |
+| 1 | `r.krishnan` | `Teller@Krishnan1` | teller, Chennai |
+| 2 | `s.iyer` | `Teller@Iyer2` | teller, Chennai |
+| 3 | `a.fernandes` | `Teller@Fernandes3` | teller, Mumbai |
+| 4 | `p.nair` | `Officer@Nair4` | officer, Bengaluru |
+| 5 | `m.d'souza` | `Officer@Dsouza5` | officer, Mumbai |
+| 6 | `k.venkatesh` | `Analyst@Venkatesh6` | analyst, Chennai |
+| 7 | `d.sharma` | `Analyst@Sharma7` | analyst, Bengaluru |
+| 8 | `l.mathew` | `Manager@Mathew8` | manager, Chennai |
+| 9 | `v.rao` | `Manager@Rao9` | manager, Bengaluru |
+| 10 | `t.banerjee` | `Dba@Banerjee10` | DBA, Singapore |
+| 11 | `h.qureshi` | `Sysadmin@Qureshi11` | sysadmin, Singapore |
+| 12 | `n.pillai` | `Admin@Pillai12` | domain admin, Chennai |
+
+Every sign-in, including wrong passwords, is scored by the engine; guessing at an account trips the
+password-guessing detector. Employees cannot reach any SOC route (enforced once, in middleware).
+
+### The honeypot export
+
+An employee who exports **100 or more customers** (`LOOKOUT_HONEYPOT_THRESHOLD`), or whose export the
+risk engine flags, silently receives a **decoy PDF**. It lists the same customers they saw on
+screen, and everything visible on screen matches: names, IDs, the last four digits of the account
+and phone, the first letter of the email. Every field the screen masked is fabricated. The filename,
+layout, metadata and footer reference are the same as a genuine export, and the employee page says
+nothing.
+
+Every fake account number is a canary recorded against that export. In the SOC **Honeypot** tab,
+pasting a PDF's footer reference or any leaked account number names the person who took it. Once
+an employee has been given a decoy, they only ever get decoys, even after signing in again, until
+the SOC clears them. That way they never hold a genuine file to compare against. Serving a decoy,
+and clearing someone, are both written to the signed audit log.
+
 ## Run it
 
 ```bash
@@ -41,14 +85,14 @@ uvicorn lookout.api:app --port 8077
 # frontend, in another terminal
 cd frontend
 npm install
-npm run dev          # http://localhost:3000
+npm run dev          # http://localhost:3000 → sign-in page
 ```
 
 No API key, database or compiler is needed. The post-quantum libraries are pure Python.
 Optional settings are listed in `backend/.env.example`; export them before starting uvicorn.
 If the API runs somewhere other than `localhost:8077`, set `NEXT_PUBLIC_API_URL` for the frontend.
 
-Tests: `cd backend && python -m pytest` (145 tests). Detection report: `python -m lookout.evaluate`.
+Tests: `cd backend && python -m pytest` (173 tests). Detection report: `python -m lookout.evaluate`.
 
 ## The demo
 

@@ -100,6 +100,8 @@ export interface Stats {
   by_threat_class: Partial<Record<ThreatClass, number>>;
   clock: string;
   traffic_paused: boolean;
+  exports: number;
+  honeypots_served: number;
 }
 
 export interface Health {
@@ -218,6 +220,61 @@ export interface Identity {
   action_mix: Record<string, number>;
   peak_risk: number;
   decisions: number;
+}
+
+export interface DemoAccount {
+  username: string;
+  password: string;
+  kind: "employee" | "soc";
+  role: string;
+  city: string;
+}
+
+export interface MaskedCustomer {
+  customer_id: string;
+  name: string;
+  account_no: string;
+  product: string;
+  city: string;
+  phone: string;
+  email: string;
+  kyc: string;
+}
+
+export interface CustomerPage {
+  total: number;
+  rows: MaskedCustomer[];
+  max_export: number;
+}
+
+export interface ExportRecord {
+  doc_ref: string;
+  actor: string;
+  role: string;
+  requested: number;
+  decoy: boolean;
+  reason: string;
+  ts: string;
+  risk_total: number;
+  action_taken: ActionTaken;
+  audit_seq: number | null;
+  filename: string;
+  canary_count: number;
+  canaries?: string[];
+}
+
+export interface HoneypotListing {
+  threshold: number;
+  watchlist: string[];
+  served: ExportRecord[];
+  exports: ExportRecord[];
+}
+
+export interface TraceResult {
+  found: boolean;
+  query: string;
+  matched_by?: "doc_ref" | "canary_account";
+  export?: ExportRecord;
 }
 
 export interface Evaluation {
