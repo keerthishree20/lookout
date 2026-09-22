@@ -1,5 +1,3 @@
-"use client";
-
 // The fund-transfer page. One component for real and honeypot transfers alike:
 // the server decides which ledger the numbers land in, and nothing on this
 // page can tell. A second "decoy" page would be the tell.

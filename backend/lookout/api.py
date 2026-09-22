@@ -38,7 +38,7 @@ from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 from . import scenarios as scenario_mod
-from .auth import DEMO_ACCOUNTS, AuthStore, Session
+from .auth import DEMO_ACCOUNTS, AuthStore, LoginLimiter, Session
 from .banking import Bank
 from .customers import customer_book, masked
 from .db.persistence import Persistence
@@ -241,8 +241,10 @@ async def lifespan(_: FastAPI):
 app = FastAPI(
     title="Lookout",
     description="Privileged-access misuse and insider-threat detection for banking.",
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
+    docs_url="/swagger",
+    redoc_url="/redoc",
 )
 
 #: Who may call what. First matching prefix wins; anything else under /api/
@@ -269,6 +271,32 @@ def _token(request: Request) -> str | None:
         return header[7:].strip()
     # EventSource cannot set headers, so the live stream passes it as a query.
     return request.query_params.get("token")
+
+
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    # The API returns JSON and PDFs only; it never needs to run or embed anything.
+    "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+    "Cache-Control": "no-store",
+}
+
+
+@app.middleware("http")
+async def secure_headers(request: Request, call_next):
+    response = await call_next(request)
+    for k, v in SECURITY_HEADERS.items():
+        # The interactive docs (/swagger, /redoc) load scripts from a CDN, so
+        # the no-scripts policy applies to the API itself only.
+        if k == "Content-Security-Policy" and not request.url.path.startswith("/api/"):
+            continue
+        response.headers.setdefault(k, v)
+    if request.url.scheme == "https":
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return response
 
 
 @app.middleware("http")
@@ -506,6 +534,7 @@ def reset() -> dict[str, Any]:
     s = get_state()
     subscribers = list(s.engine._subscribers)
     POLICY.reset()  # a demo reset also restores the default security policy
+    limiter.__init__()
     s.reset()
     # Keep open dashboards connected across a reset.
     s.engine._subscribers.extend(subscribers)
@@ -723,15 +752,27 @@ class LoginRequest(BaseModel):
     password: str
 
 
+limiter = LoginLimiter()
+
+
 @app.post("/api/auth/login")
-def login(body: LoginRequest) -> dict[str, Any]:
+def login(body: LoginRequest, request: Request) -> dict[str, Any]:
     """Every employee sign-in -- including every wrong password -- is an event
     in the pipeline, so guessing at a colleague's account trips the same
     failed-login-burst and credential-misuse detectors as any other attack."""
     a, s = get_auth(), get_state()
     username = body.username.strip()
     staff = BY_ACTOR.get(username)
+    client = request.client.host if request.client else "unknown"
+    wait = limiter.check(username, client)
+    if wait is not None:
+        s.engine.audit.append("auth.rate_limited", {"username": username, "source_ip": client})
+        raise HTTPException(429, f"too many sign-in attempts; try again in {wait} s", headers={"Retry-After": str(wait)})
     ok = a.verify(username, body.password)
+    if ok:
+        limiter.succeeded(username)
+    else:
+        limiter.failed(username)
     if ok and a.is_disabled(username):
         # An account the SOC or Super Admin switched off is refused outright --
         # unlike a merely risky sign-in, which lands in the honeypot.
@@ -1329,6 +1370,12 @@ def team_decide(req_id: str, body: AccessDecision, session: Session = Depends(re
 # --------------------------------------------------------------------------- #
 # Super Admin: policy and access requests without a manager
 # --------------------------------------------------------------------------- #
+
+
+@app.get("/api/policy")
+def read_policy() -> dict[str, Any]:
+    """The live thresholds, read-only, for the console's charts."""
+    return POLICY.current.as_dict()
 
 
 @app.get("/api/admin/policies")

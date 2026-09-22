@@ -1,7 +1,5 @@
-"use client";
-
 import { Binoculars, KeyRound, Loader2, LogIn, ShieldCheck, UserRound } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 
 import { API_URL, ApiError, api } from "@/lib/api";
@@ -9,8 +7,8 @@ import { humanise } from "@/lib/format";
 import { saveSession } from "@/lib/session";
 import type { DemoAccount } from "@/lib/types";
 
-export default function Login() {
-  const router = useRouter();
+export function Login() {
+  const navigate = useNavigate();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -27,7 +25,7 @@ export default function Login() {
     try {
       const s = await api.login(u.trim(), p);
       saveSession(s);
-      router.replace(s.kind === "soc" ? "/soc" : "/employee");
+      navigate(s.kind === "employee" ? "/employee" : "/dashboard", { replace: true });
     } catch (e) {
       setError(
         e instanceof ApiError
@@ -41,7 +39,7 @@ export default function Login() {
     }
   }
 
-  const soc = accounts.filter((a) => a.kind === "soc");
+  const soc = accounts.filter((a) => a.kind !== "employee");
   const staff = accounts.filter((a) => a.kind === "employee");
 
   return (
@@ -107,7 +105,7 @@ export default function Login() {
         </div>
         <div className="p-4">
           <h3 className="mb-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-violet-300">
-            <ShieldCheck className="h-3.5 w-3.5" /> Security operations
+            <ShieldCheck className="h-3.5 w-3.5" /> Security operations &amp; administration
           </h3>
           <AccountTable rows={soc} onPick={(a) => submit(a.username, a.password)} fill={(a) => { setUsername(a.username); setPassword(a.password); }} />
           <h3 className="mb-2 mt-5 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-sky-300">

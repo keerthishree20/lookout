@@ -14,3 +14,4 @@ joblib==1.6.0  # model serialisation
 shap==0.52.0   # explanations for the supervised classifier
 SQLAlchemy==2.0.54
 psycopg[binary]==3.3.6  # PostgreSQL driver, used when DATABASE_URL is set
+PyJWT==2.10.1  # signed session tokens

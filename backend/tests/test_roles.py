@@ -301,3 +301,48 @@ def test_websocket_refuses_without_console_token(client):
     with pytest.raises(WebSocketDisconnect):
         with client.websocket_connect("/api/ws?token=nope") as ws:
             ws.receive_json()
+
+
+# -- JWT, rate limiting, headers ------------------------------------------------------------ #
+
+
+def test_tokens_are_signed_jwts_and_tampering_fails(client):
+    import jwt as pyjwt
+
+    token = client.post("/api/auth/login", json={"username": "s.iyer", "password": PASSWORDS["s.iyer"]}).json()["token"]
+    claims = pyjwt.decode(token, options={"verify_signature": False})
+    assert claims["sub"] == "s.iyer" and claims["kind"] == "employee" and "exp" in claims and claims["sid"]
+    forged = pyjwt.encode({**claims, "kind": "soc"}, "not-the-secret", algorithm="HS256")
+    assert client.get("/api/stats", headers={"Authorization": f"Bearer {forged}"}).status_code == 401
+
+
+def test_valid_jwt_stops_working_once_the_session_is_revoked(client, soc):
+    token = client.post("/api/auth/login", json={"username": "v.rao", "password": PASSWORDS["v.rao"]}).json()["token"]
+    hdr = {"Authorization": f"Bearer {token}"}
+    assert client.get("/api/auth/me", headers=hdr).status_code == 200
+    sid = __import__("jwt").decode(token, options={"verify_signature": False})["sid"]
+    client.post(f"/api/sessions/{sid}/revoke", headers=soc)
+    assert client.get("/api/auth/me", headers=hdr).status_code == 401
+
+
+def test_login_rate_limit_after_ten_failures(client, soc):
+    codes = [client.post("/api/auth/login", json={"username": "m.d'souza", "password": "x"}).status_code for _ in range(11)]
+    assert codes[:10] == [401] * 10 and codes[10] == 429
+    right = client.post("/api/auth/login", json={"username": "m.d'souza", "password": PASSWORDS["m.d'souza"]})
+    assert right.status_code == 429 and "Retry-After" in right.headers
+    client.post("/api/reset", headers=soc)  # clears the limiter for the other tests
+    assert client.post("/api/auth/login", json={"username": "m.d'souza", "password": PASSWORDS["m.d'souza"]}).status_code == 200
+
+
+def test_security_headers(client):
+    r = client.get("/api/health")
+    assert r.headers["X-Content-Type-Options"] == "nosniff"
+    assert r.headers["X-Frame-Options"] == "DENY"
+    assert "default-src 'none'" in r.headers["Content-Security-Policy"]
+
+
+def test_api_docs_are_served(client):
+    assert client.get("/swagger").status_code == 200
+    assert client.get("/redoc").status_code == 200
+    assert "Content-Security-Policy" not in client.get("/swagger").headers
+    assert client.get("/openapi.json").json()["info"]["title"] == "Lookout"

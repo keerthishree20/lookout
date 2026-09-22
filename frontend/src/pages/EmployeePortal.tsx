@@ -1,5 +1,3 @@
-"use client";
-
 // The employee's view of the bank. It deliberately knows nothing about Lookout:
 // no risk scores, no alerts, and no way to tell a genuine export from a decoy.
 // If this page could tell, so could the insider.
@@ -7,6 +5,8 @@
 import {
   ArrowRightLeft,
   Building2,
+  KeyRound,
+  UsersRound,
   Users,
   CheckCircle2,
   ChevronLeft,
@@ -17,9 +17,11 @@ import {
   LogOut,
   Search,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "react-router-dom";
 import { useCallback, useEffect, useState } from "react";
 
+import { AccessRequestsPanel } from "@/components/AccessRequestsPanel";
+import { TeamPanel } from "@/components/TeamPanel";
 import { TransferPanel } from "@/components/TransferPanel";
 import { ApiError, api } from "@/lib/api";
 import { humanise } from "@/lib/format";
@@ -35,8 +37,8 @@ interface Download {
   at: string;
 }
 
-export default function EmployeePortal() {
-  const router = useRouter();
+export function EmployeePortal() {
+  const navigate = useNavigate();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [q, setQ] = useState("");
   const [query, setQuery] = useState("");
@@ -49,21 +51,21 @@ export default function EmployeePortal() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [downloads, setDownloads] = useState<Download[]>([]);
-  const [tab, setTab] = useState<"customers" | "transfer">("customers");
+  const [tab, setTab] = useState<"customers" | "transfer" | "access" | "team">("customers");
 
   const expired = useCallback(() => {
     clearSession();
-    router.replace("/login");
-  }, [router]);
+    navigate("/login", { replace: true });
+  }, [navigate]);
 
   useEffect(() => {
     const s = loadSession();
     if (!s || s.kind !== "employee") {
-      router.replace("/login");
+      navigate("/login", { replace: true });
       return;
     }
     setProfile(s.profile);
-  }, [router]);
+  }, [navigate]);
 
   useEffect(() => {
     if (!profile) return;
@@ -102,7 +104,7 @@ export default function EmployeePortal() {
   async function signOut() {
     await api.logout().catch(() => {});
     clearSession();
-    router.replace("/login");
+    navigate("/login", { replace: true });
   }
 
   function toggle(id: string) {
@@ -154,6 +156,8 @@ export default function EmployeePortal() {
           [
             ["customers", "Customers", Users],
             ["transfer", "Fund transfer", ArrowRightLeft],
+            ["access", "Access requests", KeyRound],
+            ...(profile.role === "manager" ? ([["team", "My team", UsersRound]] as const) : []),
           ] as const
         ).map(([key, label, Icon]) => (
           <button
@@ -172,6 +176,16 @@ export default function EmployeePortal() {
       {tab === "transfer" && (
         <main className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6">
           <TransferPanel onExpired={expired} />
+        </main>
+      )}
+      {tab === "access" && (
+        <main className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6">
+          <AccessRequestsPanel onExpired={expired} />
+        </main>
+      )}
+      {tab === "team" && (
+        <main className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6">
+          <TeamPanel onExpired={expired} />
         </main>
       )}
 

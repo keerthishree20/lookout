@@ -1,7 +1,7 @@
 // Per-tab session. sessionStorage (not localStorage) so one browser can hold an
 // employee in one tab and the SOC analyst in another -- which is the demo.
 
-export type Kind = "employee" | "soc";
+export type Kind = "employee" | "soc" | "superadmin";
 
 export interface Profile {
   username: string;

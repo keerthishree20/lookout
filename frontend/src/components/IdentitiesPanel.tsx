@@ -1,7 +1,6 @@
-"use client";
-
 import { Users } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { api } from "@/lib/api";
 import { humanise } from "@/lib/format";
@@ -55,7 +54,9 @@ export function IdentitiesPanel({ refreshKey }: { refreshKey: number }) {
               {sorted.map((u) => (
                 <tr key={u.actor} className="border-t border-zinc-800/70">
                   <td className="px-4 py-2">
-                    <div className="text-zinc-200">{u.actor}</div>
+                    <Link to={`/users/${encodeURIComponent(u.actor)}`} className="text-zinc-200 hover:text-sky-300">
+                      {u.actor}
+                    </Link>
                     <div className="text-[11px] text-zinc-500">{humanise(u.role)} · {u.events.toLocaleString()} events</div>
                   </td>
                   <td className="px-2 py-2">

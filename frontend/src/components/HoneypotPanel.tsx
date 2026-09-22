@@ -1,5 +1,3 @@
-"use client";
-
 import { ArrowRightLeft, FileWarning, Fingerprint, Loader2, Search, ShieldOff, UserX } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 

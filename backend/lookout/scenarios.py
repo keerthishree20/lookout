@@ -1,7 +1,8 @@
 """Scripted insider incidents.
 
-Seven incidents, chosen so that between them they exercise every detector and
-every response band. Each is a list of labelled events replayed through the
+Ten scripted situations -- including a normal login as the control case and
+the six-step attack story from the project brief -- chosen so that between
+them they exercise every detector and every response band. Each is a list of labelled events replayed through the
 same pipeline as live traffic -- nothing about scoring knows that a scenario is
 running, which is what makes the demo evidence rather than theatre.
 
@@ -218,6 +219,70 @@ def _transfer_fraud(now: datetime, rng: random.Random) -> list[Event]:
     ]
 
 
+def _normal_login(now: datetime, rng: random.Random) -> list[Event]:
+    """Control case: a manager signs in at their usual desk and hour."""
+    staff = BY_ACTOR["v.rao"]
+    t = now.replace(hour=9, minute=5, second=0, microsecond=0)
+    if t <= now:
+        t += timedelta(days=1)
+    session = _sid(rng)
+    return [
+        make_event(staff, Action.LOGIN, t, rng, session_id=session, label=ThreatClass.BENIGN, scenario="normal_login"),
+        make_event(staff, Action.DB_QUERY, t + timedelta(minutes=12), rng, resource="core.accounts",
+                   record_count=280, session_id=session, label=ThreatClass.BENIGN, scenario="normal_login"),
+    ]
+
+
+def _abnormal_login(now: datetime, rng: random.Random) -> list[Event]:
+    """02:30, a laptop never seen before, a new country, an unknown IP."""
+    staff = BY_ACTOR["d.sharma"]
+    t = now.replace(hour=2, minute=30, second=0, microsecond=0)
+    if t <= now:
+        t += timedelta(days=1)
+    return [
+        make_event(staff, Action.LOGIN, t, rng, city="Singapore", device="LT-UNKNOWN-7731",
+                   ip="203.0.113.77", session_id=_sid(rng), label=ThreatClass.COMPROMISED,
+                   scenario="abnormal_login"),
+    ]
+
+
+def _attack_story(now: datetime, rng: random.Random) -> list[Event]:
+    """The six-step story from the project brief, on one privileged account.
+
+    1 normal login - 2 new device at 02:30 - 3 sensitive database -
+    4 privilege escalation - 5 message with a suspicious URL - 6 50,000 copies.
+    """
+    staff = BY_ACTOR["t.banerjee"]
+    day = now.replace(hour=11, minute=0, second=0, microsecond=0)
+    if day <= now:
+        day += timedelta(days=1)
+    night = (day + timedelta(days=1)).replace(hour=2, minute=30)
+    good, bad = _sid(rng), _sid(rng)
+    url = "http://meridianbank.secure-login.top/verify-kyc"
+    tag = {"scenario": "attack_story"}
+    return [
+        make_event(staff, Action.LOGIN, day, rng, session_id=good, label=ThreatClass.BENIGN, **tag),
+        make_event(staff, Action.LOGIN, night, rng, device="LT-UNKNOWN-0230", ip="45.155.205.11",
+                   session_id=bad, label=ThreatClass.COMPROMISED, **tag),
+        make_event(staff, Action.DB_QUERY, night + timedelta(minutes=3), rng, resource="core.customers",
+                   record_count=64_000, device="LT-UNKNOWN-0230", ip="45.155.205.11", session_id=bad,
+                   label=ThreatClass.COMPROMISED, **tag),
+        make_event(staff, Action.PRIV_ESCALATE, night + timedelta(minutes=6), rng, resource="iam.role-bindings",
+                   target_role=Role.DOMAIN_ADMIN.value, success=False, device="LT-UNKNOWN-0230",
+                   ip="45.155.205.11", session_id=bad, label=ThreatClass.COMPROMISED, **tag),
+        make_event(staff, Action.SEND_MESSAGE, night + timedelta(minutes=9), rng, resource="gateway.outbound",
+                   device="LT-UNKNOWN-0230", ip="45.155.205.11", session_id=bad,
+                   message=MessagePayload(channel="sms", recipient_count=1, audience="customer",
+                                          body=f"Your account is on hold. Verify now: {url}", urls=[url]),
+                   label=ThreatClass.COMPROMISED, **tag),
+        make_event(staff, Action.SEND_MESSAGE, night + timedelta(minutes=11), rng, resource="gateway.outbound",
+                   device="LT-UNKNOWN-0230", ip="45.155.205.11", session_id=bad,
+                   message=MessagePayload(channel="sms", recipient_count=50_000, audience="customer",
+                                          body=f"Your account is on hold. Verify now: {url}", urls=[url]),
+                   label=ThreatClass.COMPROMISED, **tag),
+    ]
+
+
 def _negligent_insider(now: datetime, rng: random.Random) -> list[Event]:
     """Not an attack: a teller emails 900 customers a real statement link.
 
@@ -243,6 +308,22 @@ def _negligent_insider(now: datetime, rng: random.Random) -> list[Event]:
 
 
 SCENARIOS: tuple[Scenario, ...] = (
+    Scenario(
+        "normal_login",
+        "Normal login",
+        "v.rao signs in at 09:05 from their usual laptop in Bengaluru and reads 280 rows. "
+        "The control case: it should be allowed.",
+        ("Behaviour analytics", "Risk-based authentication"),
+        _normal_login,
+    ),
+    Scenario(
+        "abnormal_login",
+        "Abnormal login",
+        "d.sharma's account signs in at 02:30 from Singapore on a laptop and IP address "
+        "never seen before.",
+        ("Abnormal login detection", "Risk-based authentication"),
+        _abnormal_login,
+    ),
     Scenario(
         "compromised_account",
         "Compromised teller account",
@@ -302,6 +383,18 @@ SCENARIOS: tuple[Scenario, ...] = (
         "is not approved for bulk sends.",
         ("Insider threat classification", "Risk-based authentication"),
         _negligent_insider,
+    ),
+    Scenario(
+        "attack_story",
+        "Full attack story (6 steps)",
+        "The brief's worked example on DBA t.banerjee: normal login, then 02:30 on a new "
+        "device, a 64,000-row customer read, an escalation attempt, one phishing SMS, then "
+        "50,000 more.",
+        (
+            "Abnormal login", "Sensitive resource access", "Privilege escalation",
+            "Phishing URL", "Bulk fraud messages", "Session revocation",
+        ),
+        _attack_story,
     ),
 )
 

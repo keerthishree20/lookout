@@ -43,7 +43,7 @@ def test_crypto_is_fully_quantum_safe(client):
 
 def test_scenarios_listed(client):
     keys = {s["key"] for s in client.get("/api/scenarios").json()}
-    assert "phishing_blast" in keys and len(keys) == 7
+    assert {"phishing_blast", "normal_login", "abnormal_login", "attack_story"} <= keys and len(keys) == 10
 
 
 def test_run_scenario(client):

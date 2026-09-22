@@ -1,5 +1,3 @@
-"use client";
-
 import { AlertTriangle, CheckCircle2, KeyRound, Link2, Loader2, Lock, ShieldCheck, Skull } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 

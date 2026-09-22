@@ -43,6 +43,8 @@ def test_ordinary_work_is_allowed(engine, rng):
         ("credential_stuffing", ThreatClass.COMPROMISED, {ActionTaken.BLOCK_AND_ALERT}),
         ("negligent_insider", ThreatClass.NEGLIGENT, {ActionTaken.STEP_UP, ActionTaken.QUARANTINE}),
         ("transfer_fraud", ThreatClass.MALICIOUS, {ActionTaken.BLOCK_AND_ALERT}),
+        ("abnormal_login", ThreatClass.COMPROMISED, {ActionTaken.STEP_UP}),
+        ("attack_story", ThreatClass.COMPROMISED, {ActionTaken.BLOCK_AND_ALERT}),
     ],
 )
 def test_each_scenario_ends_in_the_right_place(engine, key, expected_class, strongest):
@@ -208,5 +210,24 @@ def test_scenario_catalogue_is_complete():
     assert set(BY_KEY) == {
         "compromised_account", "privilege_escalation", "phishing_blast",
         "data_exfiltration", "credential_stuffing", "negligent_insider",
-        "transfer_fraud",
+        "transfer_fraud", "normal_login", "abnormal_login", "attack_story",
     }
+
+
+def test_normal_login_is_allowed(engine):
+    assert all(d.action_taken is ActionTaken.ALLOW for d in run(engine, "normal_login"))
+
+
+def test_attack_story_follows_the_briefs_escalation(engine):
+    """Verify, then block, then block-and-revoke as the story unfolds."""
+    ds = run(engine, "attack_story")
+    assert [d.event.action for d in ds] == [
+        Action.LOGIN, Action.LOGIN, Action.DB_QUERY, Action.PRIV_ESCALATE, Action.SEND_MESSAGE, Action.SEND_MESSAGE,
+    ]
+    assert ds[0].action_taken is ActionTaken.ALLOW
+    assert ds[1].action_taken is ActionTaken.STEP_UP
+    assert ds[2].action_taken in (ActionTaken.BLOCK, ActionTaken.BLOCK_AND_ALERT)
+    assert ds[5].action_taken is ActionTaken.BLOCK_AND_ALERT
+    assert engine.ctx.is_revoked(ds[5].event.meta["session_id"])
+    scores = [d.risk.total for d in ds]
+    assert scores[1] < scores[2] <= scores[5]

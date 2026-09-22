@@ -1,9 +1,9 @@
-"use client";
+import { BrainCircuit, FileSignature, Gavel, Loader2, MapPin, Monitor, ShieldAlert, Sparkles, User } from "lucide-react";
+import { useEffect, useState } from "react";
 
-import { FileSignature, Gavel, MapPin, Monitor, ShieldAlert, Sparkles, User } from "lucide-react";
-
+import { api } from "@/lib/api";
 import { dateTime, humanise } from "@/lib/format";
-import type { Decision } from "@/lib/types";
+import type { Decision, RiskExplanation } from "@/lib/types";
 
 import { ActionChip, BandChip, Card, ClassChip, Empty } from "./ui";
 
@@ -132,6 +132,8 @@ export function DecisionDetail({ decision }: { decision: Decision | null }) {
           </ul>
         </div>
 
+        {decision.ml && <SecondOpinion decision={decision} />}
+
         {/* the event */}
         <div>
           <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-zinc-500">Event</h3>
@@ -173,5 +175,80 @@ export function DecisionDetail({ decision }: { decision: Decision | null }) {
         </div>
       </div>
     </Card>
+  );
+}
+
+
+/** The supervised classifier's view of the whole session, with SHAP: which
+ *  session features pushed it toward its label and by how much. Advisory --
+ *  the class chips above come from the rules. */
+function SecondOpinion({ decision }: { decision: Decision }) {
+  const [exp, setExp] = useState<RiskExplanation | null>(null);
+  const [loading, setLoading] = useState(false);
+  const ml = decision.ml!;
+
+  useEffect(() => {
+    setExp(null);
+  }, [decision.event.event_id]);
+
+  async function explain() {
+    setLoading(true);
+    try {
+      setExp(await api.explanation(decision.event.event_id));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const opinion = exp?.ml_second_opinion;
+  const shap = opinion && opinion.available ? opinion.shap : [];
+  const max = Math.max(0.0001, ...shap.map((s) => Math.abs(s.contribution)));
+  const agrees = ml.classification === decision.threat_class || (ml.classification === "normal" && decision.threat_class === "benign");
+
+  return (
+    <div className="rounded-lg border border-violet-500/30 bg-violet-500/5 p-3">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <BrainCircuit className="h-4 w-4 text-violet-300" />
+        <span className="font-medium text-violet-100">ML second opinion</span>
+        <span className="rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-zinc-200">{humanise(ml.classification)}</span>
+        <span className="text-zinc-400">{(ml.confidence * 100).toFixed(0)}% confident</span>
+        <span className={agrees ? "text-emerald-300" : "text-amber-300"}>{agrees ? "agrees with the rules" : "disagrees with the rules"}</span>
+      </div>
+      <p className="mt-1 text-[11px] text-zinc-500">
+        RandomForest over {ml.session_events} event{ml.session_events === 1 ? "" : "s"} of this session. Advisory only.
+      </p>
+      {!exp ? (
+        <button
+          onClick={explain}
+          disabled={loading}
+          className="mt-2 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-violet-200 ring-1 ring-inset ring-violet-500/40 hover:bg-violet-500/10"
+        >
+          {loading && <Loader2 className="h-3 w-3 animate-spin" />} Explain with SHAP
+        </button>
+      ) : (
+        <ul className="mt-2 space-y-1.5" aria-label="SHAP contributions">
+          {shap.map((s) => (
+            <li key={s.feature} className="grid grid-cols-[1fr_auto] items-center gap-x-2 text-[11px]">
+              <span className="text-zinc-300">
+                {humanise(s.feature)} <span className="font-mono text-zinc-500">= {s.value}</span>
+              </span>
+              <span className={`font-mono ${s.contribution >= 0 ? "text-violet-200" : "text-zinc-400"}`}>
+                {s.contribution >= 0 ? "+" : ""}
+                {s.contribution.toFixed(3)}
+              </span>
+              <div className="col-span-2 h-1 overflow-hidden rounded-full bg-zinc-800">
+                <div
+                  className={s.contribution >= 0 ? "h-full bg-violet-400" : "h-full bg-zinc-500"}
+                  style={{ width: `${(Math.abs(s.contribution) / max) * 100}%` }}
+                />
+              </div>
+            </li>
+          ))}
+          <li className="pt-1 text-[10px] text-zinc-500">
+            Positive values pushed the model toward "{humanise(ml.classification)}"; negative values pushed away from it.
+          </li>
+        </ul>
+      )}
+    </div>
   );
 }

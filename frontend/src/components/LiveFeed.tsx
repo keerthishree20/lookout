@@ -1,5 +1,3 @@
-"use client";
-
 import { Activity, Filter } from "lucide-react";
 
 import { humanise, time } from "@/lib/format";

@@ -1,5 +1,3 @@
-"use client";
-
 import { FlaskConical, Info, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 

@@ -1,5 +1,3 @@
-"use client";
-
 import { CheckCircle2, Inbox, Loader2, MailWarning, Send, ShieldX } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 

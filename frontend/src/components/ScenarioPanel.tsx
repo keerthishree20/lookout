@@ -1,5 +1,3 @@
-"use client";
-
 import { Loader2, Play, Siren } from "lucide-react";
 import { useState } from "react";
 

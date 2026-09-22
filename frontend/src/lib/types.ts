@@ -84,6 +84,16 @@ export interface Decision {
   quarantine_id: string | null;
   /** Set when a hard policy raised the response above what the score alone would do. */
   policy: string | null;
+  /** Supervised classifier's advisory opinion on the whole session. */
+  ml: MlOpinion | null;
+}
+
+export interface MlOpinion {
+  classification: string;
+  confidence: number;
+  probabilities: Record<string, number>;
+  session_events: number;
+  features: Record<string, number>;
 }
 
 export interface Stats {
@@ -104,6 +114,9 @@ export interface Stats {
   honeypots_served: number;
   transfer_decoys: number;
   in_honeypot: number;
+  open_alerts: number;
+  open_incidents: number;
+  active_sessions: number;
 }
 
 export interface Health {
@@ -227,7 +240,7 @@ export interface Identity {
 export interface DemoAccount {
   username: string;
   password: string;
-  kind: "employee" | "soc";
+  kind: "employee" | "soc" | "superadmin";
   role: string;
   city: string;
 }
@@ -370,3 +383,210 @@ export interface Evaluation {
     signals: string;
   }[];
 }
+
+export interface ShapItem {
+  feature: string;
+  value: number;
+  contribution: number;
+}
+
+export interface RiskExplanation {
+  event_id: string;
+  risk_score: number;
+  risk_level: string;
+  action: ActionTaken;
+  classification: ThreatClass;
+  reasons: string[];
+  arithmetic: { rule_points: number; model_points: number; privilege_multiplier: number };
+  ml_second_opinion:
+    | { available: false }
+    | { available: true; classification: string; confidence: number; probabilities: Record<string, number>; shap: ShapItem[] };
+}
+
+export interface ClassMetrics {
+  precision: number;
+  recall: number;
+  f1: number;
+  support: number;
+  pr_auc: number;
+}
+
+export interface SplitMetrics {
+  accuracy: number;
+  macro_f1: number;
+  roc_auc_ovr_macro: number;
+  pr_auc_macro: number;
+  threat_recall: number;
+  normal_false_alarm_rate: number;
+  per_class: Record<string, ClassMetrics>;
+  confusion_matrix: { labels: string[]; rows_true_cols_pred: number[][] };
+  n: number;
+  held_out_users?: string[];
+}
+
+export interface MlMetrics {
+  model: string;
+  dataset: { rows: number; synthetic: boolean; class_counts: Record<string, number> };
+  random_split_25pct: SplitMetrics;
+  unseen_employees: SplitMetrics;
+  feature_importance: [string, number][];
+}
+
+export interface DashboardStats {
+  total_users: number;
+  active_sessions: number;
+  high_risk_users: number;
+  critical_alerts: number;
+  blocked_messages: number;
+  quarantined_messages: number;
+  privileged_accounts: number;
+  threat_distribution: Record<string, number>;
+  score_distribution: Record<string, number>;
+  alerts_by_type: Record<string, number>;
+}
+
+export interface RiskTrendBucket {
+  start: string;
+  count: number;
+  flagged: number;
+  mean: number;
+  peak: number;
+}
+
+export type AlertStatus = "OPEN" | "INVESTIGATING" | "RESOLVED" | "FALSE_POSITIVE";
+
+export interface Alert {
+  id: string;
+  severity: "HIGH" | "CRITICAL";
+  user: string;
+  alert_type: string;
+  event_id: string;
+  event: string;
+  risk_score: number;
+  ts: string;
+  description: string;
+  reasons: string[];
+  recommended_action: string;
+  classification: string;
+  status: AlertStatus;
+  incident_id: string | null;
+}
+
+export interface Incident {
+  id: string;
+  title: string;
+  threat_type: string;
+  user: string;
+  severity: string;
+  risk_score: number;
+  status: AlertStatus;
+  assigned_to: string | null;
+  created_at: string;
+  resolved_at: string | null;
+  alert_count: number;
+}
+
+export interface IncidentDetail extends Incident {
+  alert_ids: string[];
+  evidence: string[];
+  ai_explanation: string;
+  ml_opinion: Omit<MlOpinion, "features"> | null;
+  actions_taken: { ts: string; by: string; action: string; detail?: string }[];
+  notes: { ts: string; by: string; text: string }[];
+  timeline: { ts: string; kind: string; text: string }[];
+  alerts: Alert[];
+  honeypot: WatchEntry | null;
+}
+
+export interface SessionRow {
+  session_id: string;
+  username: string;
+  kind: string;
+  role: string;
+  expires: string;
+}
+
+export interface AccountRow {
+  username: string;
+  kind: string;
+  role: string;
+  privilege_level: number | null;
+  disabled: boolean;
+  disabled_by: string | null;
+  disabled_reason: string | null;
+  active_sessions: number;
+}
+
+export interface AccessCheckResult {
+  user: string;
+  role: string;
+  resource: string;
+  decision: "ALLOWED" | "MFA_REQUIRED" | "RESTRICTED" | "DENIED" | "BLOCK_AND_REVOKE";
+  reason: string;
+  current_risk: number;
+  risk_band: Band;
+  monitoring: "standard" | "enhanced";
+}
+
+export interface AccessRequest {
+  id: string;
+  user: string;
+  role: string;
+  resource: string;
+  resource_name: string;
+  reason: string;
+  status: "PENDING" | "APPROVED" | "DENIED";
+  approver: string;
+  decided_by: string | null;
+  note: string;
+  created_at: string;
+  decided_at: string | null;
+}
+
+export interface TeamOverview {
+  manager: string;
+  branch: string;
+  members: {
+    user: string;
+    role: string;
+    activities: number;
+    flagged: number;
+    peak_risk: number;
+    last_activity: string | null;
+    risk_trend: number[];
+  }[];
+}
+
+export interface Policy {
+  medium: number;
+  high: number;
+  critical: number;
+  honeypot_export_threshold: number;
+  transfer_limits: Record<string, number>;
+}
+
+export interface UserRisk {
+  user: string;
+  role: string;
+  current_risk: number;
+  peak_risk: number;
+  classification: string;
+  trend: { ts: string; risk: number; action: string }[];
+  logins: { ts: string; city: string; device: string; ip: string; success: boolean; risk: number }[];
+  devices: Record<string, number>;
+  locations: Record<string, number>;
+  resources: Record<string, number>;
+  messages: number;
+  alerts: Alert[];
+}
+
+export type DbStatus =
+  | { enabled: false; reason: string }
+  | {
+      enabled: true;
+      url: string;
+      dialect: string;
+      run_id: string;
+      rows: Record<string, number>;
+      audit_chain: { ok: boolean; rows: number; broken_at: number | null };
+    };
