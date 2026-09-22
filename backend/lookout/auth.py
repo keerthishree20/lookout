@@ -91,6 +91,11 @@ class AuthStore:
         self.disabled: dict[str, tuple[str, str]] = {}
         self._lock = threading.Lock()
 
+    def stored_hash(self, username: str) -> str:
+        """The stored credential in a portable form, for the users table."""
+        a = self._accounts[username]
+        return f"pbkdf2_sha256${PBKDF2_ROUNDS}${a.salt.hex()}${a.digest.hex()}"
+
     def exists(self, username: str) -> bool:
         return username in self._accounts
 

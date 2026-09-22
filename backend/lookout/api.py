@@ -41,6 +41,8 @@ from . import scenarios as scenario_mod
 from .auth import DEMO_ACCOUNTS, AuthStore, Session
 from .banking import Bank
 from .customers import customer_book, masked
+from .db.persistence import Persistence
+from .db.persistence import from_env as db_from_env
 from .evaluate import run_evaluation
 from .generator import BY_ACTOR, CITIES, ROSTER, generate_history
 from .incidents import ALERT_STATUSES, IncidentBook
@@ -94,6 +96,10 @@ class AppState:
         alert = self.incidents.on_decision(decision)
         if alert is not None:
             self.engine.broadcast_extra("alert", alert.as_dict())
+            db = get_db()
+            if db is not None:
+                db.upsert_alert(alert)
+                db.upsert_incident(self.incidents.incidents[alert.incident_id])
 
     def _honeypot_trigger(self, decision: Decision) -> None:
         """Any high-risk decision about an employee moves them into the
@@ -126,11 +132,19 @@ class AppState:
     @staticmethod
     def _build_engine() -> Engine:
         seed = os.getenv("LOOKOUT_AUDIT_SEED", "lookout-demo-seed-do-not-use-prod")
-        return Engine(
+        engine = Engine(
             narrator=Narrator(),
             audit_seed=seed.encode().ljust(32, b"\0")[:32],
             classifier=get_classifier(),
-        ).warm_up()
+        )
+        db = get_db()
+        if db is not None:
+            # Attached before warm-up, so the persisted chain starts at seq 0
+            # and verifies from the genesis hash.
+            db.run_id = str(uuid.uuid4())
+            engine.audit.listeners.append(db.record_audit)
+            engine.listeners.append(db.record_decision)
+        return engine.warm_up()
 
     def reset(self) -> None:
         self.__init__()
@@ -158,6 +172,17 @@ state: AppState | None = None
 #: Outside AppState on purpose: a demo reset must not sign everyone out.
 auth: AuthStore | None = None
 _classifier: ThreatClassifier | None = None
+_db: Persistence | None = None
+_db_loaded = False
+
+
+def get_db() -> Persistence | None:
+    """Write-through database, if ``DATABASE_URL`` is set. Created once."""
+    global _db, _db_loaded
+    if not _db_loaded:
+        _db = db_from_env()
+        _db_loaded = True
+    return _db
 
 
 def get_classifier() -> ThreatClassifier | None:
@@ -196,9 +221,12 @@ async def _traffic_loop(interval: float) -> None:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     global state, auth
-    state = await asyncio.to_thread(AppState)
     if auth is None:
         auth = await asyncio.to_thread(AuthStore)
+    db = await asyncio.to_thread(get_db)
+    if db is not None:
+        await asyncio.to_thread(db.seed, auth)
+    state = await asyncio.to_thread(AppState)
     task = None
     if os.getenv("LOOKOUT_LIVE_TRAFFIC", "1") != "0":
         interval = float(os.getenv("LOOKOUT_TRAFFIC_INTERVAL", "1.5"))
@@ -568,6 +596,8 @@ def release(qid: str, body: ReleaseRequest) -> dict[str, Any]:
     d = get_state().engine.release(qid, body.reviewer)
     if d is None:
         raise HTTPException(404, "not in quarantine")
+    if get_db() is not None:
+        get_db().review_quarantine(qid, body.reviewer, "released")
     return {"released": qid, "by": body.reviewer}
 
 
@@ -732,6 +762,9 @@ def login(body: LoginRequest) -> dict[str, Any]:
     else:
         s.engine.audit.append("auth.console_login", {"username": username, "kind": session.kind})
 
+    db = get_db()
+    if db is not None:
+        db.open_session(session.session_id, username, session.profile.get("device", ""))
     return {"token": session.token, "kind": session.kind, "profile": session.profile}
 
 
@@ -739,7 +772,10 @@ def login(body: LoginRequest) -> dict[str, Any]:
 def logout(request: Request) -> dict[str, Any]:
     token = _token(request)
     if token:
+        sess = get_auth().get(token)
         get_auth().close(token)
+        if sess is not None and get_db() is not None:
+            get_db().close_session(sess.session_id, "logged_out")
     return {"ok": True}
 
 
@@ -1359,6 +1395,8 @@ def disable_account(username: str, body: DisableBody, request: Request) -> dict[
     if username == by:
         raise HTTPException(400, "you cannot disable yourself")
     signed_out = a.disable(username, by, body.reason)
+    if get_db() is not None:
+        get_db().set_user_status(username, "disabled")
     s = get_state()
     s.engine.audit.append("account.disabled", {"username": username, "by": by, "reason": body.reason}, critical=True)
     s.incidents.note_for_user(username, "action", f"Account disabled by {by}: {body.reason}")
@@ -1370,6 +1408,8 @@ def enable_account(username: str, request: Request) -> dict[str, Any]:
     by = current_session(request).username
     if not get_auth().enable(username):
         raise HTTPException(404, "account is not disabled")
+    if get_db() is not None:
+        get_db().set_user_status(username, "active")
     get_state().engine.audit.append("account.enabled", {"username": username, "by": by}, critical=True)
     return {"enabled": username}
 
@@ -1396,6 +1436,8 @@ def revoke_session(session_id: str, request: Request) -> dict[str, Any]:
         raise HTTPException(404, "no such session")
     s = get_state()
     s.engine.ctx.revoke(session_id)  # any further use of it is now a signal too
+    if get_db() is not None:
+        get_db().close_session(session_id, "revoked")
     s.engine.audit.append("session.revoked", {"session_id": session_id, "user": ended.username, "by": by}, critical=True)
     s.incidents.note_for_user(ended.username, "action", f"Session {session_id} revoked by {by}.")
     return {"revoked": session_id, "user": ended.username}
@@ -1460,7 +1502,7 @@ def create_incident(body: IncidentCreate, request: Request) -> dict[str, Any]:
         title=body.title, user=body.user, severity=body.severity.upper(),
         description=body.description, by=current_session(request).username,
     )
-    return inc.as_dict()
+    return _saved(inc)
 
 
 def _incident(incident_id: str):
@@ -1468,6 +1510,13 @@ def _incident(incident_id: str):
     if inc is None:
         raise HTTPException(404, "no such incident")
     return inc
+
+
+def _saved(inc) -> dict[str, Any]:
+    """Persist an incident after an analyst changes it, then return it."""
+    if get_db() is not None:
+        get_db().upsert_incident(inc)
+    return inc.as_dict()
 
 
 @app.get("/api/incidents/{incident_id}")
@@ -1489,7 +1538,7 @@ class AssignBody(BaseModel):
 @app.post("/api/incidents/{incident_id}/assign")
 def assign_incident(incident_id: str, body: AssignBody, request: Request) -> dict[str, Any]:
     _incident(incident_id)
-    return get_state().incidents.assign(incident_id, body.analyst, current_session(request).username).as_dict()
+    return _saved(get_state().incidents.assign(incident_id, body.analyst, current_session(request).username))
 
 
 class NoteBody(BaseModel):
@@ -1499,7 +1548,7 @@ class NoteBody(BaseModel):
 @app.post("/api/incidents/{incident_id}/notes")
 def note_incident(incident_id: str, body: NoteBody, request: Request) -> dict[str, Any]:
     _incident(incident_id)
-    return get_state().incidents.note(incident_id, body.text, current_session(request).username).as_dict()
+    return _saved(get_state().incidents.note(incident_id, body.text, current_session(request).username))
 
 
 @app.post("/api/incidents/{incident_id}/status")
@@ -1510,7 +1559,7 @@ def incident_status(incident_id: str, body: StatusBody, request: Request) -> dic
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     get_state().engine.audit.append("incident.status", {"id": incident_id, "status": inc.status})
-    return inc.as_dict()
+    return _saved(inc)
 
 
 class IncidentAction(BaseModel):
@@ -1537,7 +1586,7 @@ def incident_action(incident_id: str, body: IncidentAction, request: Request) ->
     else:
         raise HTTPException(400, "action must be revoke_sessions, disable_account or enable_account")
     s.engine.audit.append("incident.action", {"id": incident_id, "action": body.action, "by": by}, critical=True)
-    return s.incidents.record_action(incident_id, body.action, by, detail).as_dict()
+    return _saved(s.incidents.record_action(incident_id, body.action, by, detail))
 
 
 # --------------------------------------------------------------------------- #
@@ -1730,3 +1779,20 @@ async def ws_feed(ws: WebSocket) -> None:
         pass
     finally:
         engine.unsubscribe(queue)
+
+
+@app.get("/api/db/status")
+def db_status() -> dict[str, Any]:
+    """Is the database on, what is in it, and does the stored audit chain hold."""
+    db = get_db()
+    if db is None:
+        return {"enabled": False, "reason": "DATABASE_URL not set; running in memory only"}
+    safe = re.sub(r"//([^:/@]+):[^@]*@", r"//\1:***@", db.url)
+    return {
+        "enabled": True,
+        "url": safe,
+        "dialect": db.engine.dialect.name,
+        "run_id": db.run_id,
+        "rows": db.counts(),
+        "audit_chain": db.audit_integrity(),
+    }

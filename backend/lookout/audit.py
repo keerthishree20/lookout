@@ -75,6 +75,8 @@ class AuditLog:
         self.entries: list[AuditEntry] = []
         self.checkpoints: list[Checkpoint] = []
         self._lock = threading.Lock()
+        #: Called with each new entry (e.g. to persist it). Must not raise.
+        self.listeners: list = []
 
     # -- writing ---------------------------------------------------------- #
 
@@ -95,7 +97,9 @@ class AuditLog:
             due = (seq + 1) % self.checkpoint_every == 0
             if critical or due:
                 self._checkpoint_locked()
-            return entry
+        for listener in self.listeners:
+            listener(entry)
+        return entry
 
     def checkpoint(self) -> Checkpoint:
         """Sign the current head on demand (also used before a shutdown)."""
