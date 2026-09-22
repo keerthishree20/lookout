@@ -189,3 +189,7 @@ class Decision(BaseModel):
     #: Set when a hard policy raised the response above what the score alone
     #: would have produced. The wording is shown to the analyst verbatim.
     policy: str | None = None
+    #: The supervised classifier's second opinion on the whole session:
+    #: classification, confidence, probabilities and the session features it
+    #: saw. Advisory only -- ``threat_class`` above stays authoritative.
+    ml: dict[str, Any] | None = None

@@ -43,6 +43,7 @@ from .banking import Bank
 from .customers import customer_book, masked
 from .evaluate import run_evaluation
 from .generator import BY_ACTOR, CITIES, generate_history
+from .ml.model import ThreatClassifier, load_metrics
 from .models import Action, ActionTaken, Band, Decision, Event, MessagePayload
 from .narrator import Narrator
 from .pipeline import Engine
@@ -116,6 +117,7 @@ class AppState:
         return Engine(
             narrator=Narrator(),
             audit_seed=seed.encode().ljust(32, b"\0")[:32],
+            classifier=get_classifier(),
         ).warm_up()
 
     def reset(self) -> None:
@@ -143,6 +145,18 @@ class AppState:
 state: AppState | None = None
 #: Outside AppState on purpose: a demo reset must not sign everyone out.
 auth: AuthStore | None = None
+_classifier: ThreatClassifier | None = None
+
+
+def get_classifier() -> ThreatClassifier | None:
+    """Load the trained classifier once per process (training it first if the
+    model file is missing). ``LOOKOUT_ML=0`` switches the second opinion off."""
+    global _classifier
+    if os.getenv("LOOKOUT_ML", "1") == "0":
+        return None
+    if _classifier is None:
+        _classifier = ThreatClassifier.load_or_train()
+    return _classifier
 
 
 def get_state() -> AppState:
@@ -329,6 +343,40 @@ async def stream(request: Request) -> EventSourceResponse:
             engine.unsubscribe(queue)
 
     return EventSourceResponse(events())
+
+
+@app.get("/api/risk/{event_id}/explanation")
+def risk_explanation(event_id: str) -> dict[str, Any]:
+    """Why this activity was scored as it was: the rule arithmetic and each
+    signal's sentence, plus the classifier's second opinion with SHAP
+    contributions for the session it belongs to."""
+    s = get_state()
+    for d in reversed(s.engine.decisions):
+        if d.event.event_id == event_id:
+            return {
+                "event_id": event_id,
+                "risk_score": d.risk.total,
+                "risk_level": d.risk.band.value.upper(),
+                "action": d.action_taken.value,
+                "classification": d.threat_class.value,
+                "reasons": [s_.explanation for s_ in d.risk.signals],
+                "arithmetic": {
+                    "rule_points": d.risk.rule_points,
+                    "model_points": d.risk.model_points,
+                    "privilege_multiplier": d.risk.privilege_multiplier,
+                },
+                "ml_second_opinion": s.engine.explain(d),
+            }
+    raise HTTPException(404, "no decision for that event")
+
+
+@app.get("/api/ml/metrics")
+def ml_metrics() -> dict[str, Any]:
+    """The classifier's real evaluation results, from training."""
+    metrics = load_metrics()
+    if metrics is None:
+        raise HTTPException(404, "model not trained yet")
+    return metrics
 
 
 class IngestRequest(BaseModel):

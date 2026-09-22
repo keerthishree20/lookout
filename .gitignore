@@ -6,3 +6,6 @@ __pycache__/
 .env.local
 node_modules/
 .next/
+
+# Trained model binaries are rebuilt from the committed dataset.
+backend/trained_models/*.joblib

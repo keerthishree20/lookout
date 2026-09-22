@@ -10,3 +10,5 @@ cryptography==50.0.1
 dilithium-py==1.4.0  # ML-DSA, FIPS 204
 kyber-py==1.2.0      # ML-KEM, FIPS 203
 fpdf2==2.8.8  # PDF export
+joblib==1.6.0  # model serialisation
+shap==0.52.0   # explanations for the supervised classifier

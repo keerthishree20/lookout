@@ -49,6 +49,17 @@ class DetectionContext:
         cutoff = now - span
         return [e for e in self._recent[actor] if cutoff <= e.ts <= now]
 
+    def session_events(self, actor: str, session_id: str, now) -> list[Event]:
+        """Everything recorded for one session, plus the failed sign-ins in
+        the fifteen minutes before it (they carry no session of their own)."""
+        cutoff = now - timedelta(minutes=15)
+        return [
+            e
+            for e in self._recent[actor]
+            if (session_id and e.meta.get("session_id") == session_id)
+            or (e.action is Action.LOGIN_FAILED and e.ts >= cutoff)
+        ]
+
     def count(self, actor: str, action: Action, now, minutes: int | None = None) -> int:
         """Prior events of this kind in the window -- *excluding* the event
         being judged, which has not been recorded yet."""

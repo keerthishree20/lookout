@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from datetime import datetime, timedelta
-from typing import Any, Callable, Iterable
+from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 from .anomaly import BehaviourModel, featurise, train_from_history
 from .audit import AuditLog
@@ -35,6 +35,9 @@ from .scoring import (
     step_up_requirement,
 )
 
+if TYPE_CHECKING:
+    from .ml.model import ThreatClassifier
+
 
 class Engine:
     """Holds all live state: baselines, model, audit chain, quarantine."""
@@ -44,6 +47,7 @@ class Engine:
         narrator: Narrator | None = None,
         prefer_pqc: bool = True,
         audit_seed: bytes | None = None,
+        classifier: "ThreatClassifier | None" = None,
     ) -> None:
         self.store = BaselineStore()
         self.ctx = DetectionContext()
@@ -55,6 +59,8 @@ class Engine:
         self.decisions: list[Decision] = []
         self.quarantine: dict[str, Decision] = {}
         self.history_size = 0
+        #: Supervised second opinion. None disables it (and SHAP) entirely.
+        self.classifier = classifier
         self._lock = threading.Lock()
         self._subscribers: list[asyncio.Queue] = []
         #: Called with every decision after it is recorded. The API uses this
@@ -110,6 +116,8 @@ class Engine:
                 policy=policy,
             )
             self._respond(decision)
+            if self.classifier is not None and action is not ActionTaken.ALLOW:
+                decision.ml = self._second_opinion(event, baseline, session)
             decision.narrative = self.narrator.describe(decision)
 
             entry = self.audit.append(
@@ -131,6 +139,28 @@ class Engine:
         for listener in self.listeners:
             listener(decision)
         return decision
+
+    def _second_opinion(self, event: Event, baseline, session: str) -> dict[str, Any]:
+        """Classify the whole session so far, not just this event."""
+        from .ml.features import session_features
+
+        events = self.ctx.session_events(event.actor, session, event.ts) + [event]
+        features = session_features(events, baseline)
+        opinion = self.classifier.opinion(features, explain=False)
+        return {
+            "classification": opinion.classification,
+            "confidence": round(opinion.confidence, 4),
+            "probabilities": {k: round(v, 4) for k, v in opinion.probabilities.items()},
+            "session_events": len(events),
+            "features": {k: round(v, 4) for k, v in features.items()},
+        }
+
+    def explain(self, decision: Decision) -> dict[str, Any]:
+        """SHAP breakdown of the classifier's opinion on this decision's session."""
+        if self.classifier is None or not decision.ml:
+            return {"available": False}
+        opinion = self.classifier.opinion(decision.ml["features"], explain=True, top=8)
+        return {"available": True, **opinion.as_dict()}
 
     def ingest_many(self, events: Iterable[Event]) -> list[Decision]:
         return [self.ingest(e) for e in events]

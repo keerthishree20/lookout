@@ -1,0 +1,277 @@
+{
+  "model": "RandomForestClassifier(n_estimators=200, min_samples_leaf=3, class_weight=balanced_subsample)",
+  "dataset": {
+    "rows": 10600,
+    "synthetic": true,
+    "class_counts": {
+      "normal": 9400,
+      "negligent": 420,
+      "malicious": 330,
+      "compromised": 260,
+      "privilege_abuse": 190
+    }
+  },
+  "random_split_25pct": {
+    "accuracy": 0.9725,
+    "macro_f1": 0.9029,
+    "roc_auc_ovr_macro": 0.993,
+    "pr_auc_macro": 0.9499,
+    "threat_recall": 0.8367,
+    "normal_false_alarm_rate": 0.0098,
+    "per_class": {
+      "compromised": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 65,
+        "pr_auc": 1.0
+      },
+      "malicious": {
+        "precision": 0.9868,
+        "recall": 0.9146,
+        "f1": 0.9494,
+        "support": 82,
+        "pr_auc": 0.9579
+      },
+      "negligent": {
+        "precision": 0.8272,
+        "recall": 0.6381,
+        "f1": 0.7204,
+        "support": 105,
+        "pr_auc": 0.832
+      },
+      "normal": {
+        "precision": 0.9794,
+        "recall": 0.9902,
+        "f1": 0.9848,
+        "support": 2350,
+        "pr_auc": 0.9984
+      },
+      "privilege_abuse": {
+        "precision": 0.8269,
+        "recall": 0.8958,
+        "f1": 0.86,
+        "support": 48,
+        "pr_auc": 0.9612
+      }
+    },
+    "confusion_matrix": {
+      "labels": [
+        "compromised",
+        "malicious",
+        "negligent",
+        "normal",
+        "privilege_abuse"
+      ],
+      "rows_true_cols_pred": [
+        [
+          65,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          75,
+          1,
+          6,
+          0
+        ],
+        [
+          0,
+          0,
+          67,
+          38,
+          0
+        ],
+        [
+          0,
+          1,
+          13,
+          2327,
+          9
+        ],
+        [
+          0,
+          0,
+          0,
+          5,
+          43
+        ]
+      ]
+    },
+    "n": 2650
+  },
+  "unseen_employees": {
+    "accuracy": 0.923,
+    "macro_f1": 0.8673,
+    "roc_auc_ovr_macro": 0.9837,
+    "pr_auc_macro": 0.9026,
+    "threat_recall": 0.8759,
+    "normal_false_alarm_rate": 0.0704,
+    "per_class": {
+      "compromised": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 52,
+        "pr_auc": 1.0
+      },
+      "malicious": {
+        "precision": 0.987,
+        "recall": 0.95,
+        "f1": 0.9682,
+        "support": 80,
+        "pr_auc": 0.9839
+      },
+      "negligent": {
+        "precision": 0.2965,
+        "recall": 0.6768,
+        "f1": 0.4123,
+        "support": 99,
+        "pr_auc": 0.5325
+      },
+      "normal": {
+        "precision": 0.984,
+        "recall": 0.9296,
+        "f1": 0.956,
+        "support": 2244,
+        "pr_auc": 0.9968
+      },
+      "privilege_abuse": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 43,
+        "pr_auc": 1.0
+      }
+    },
+    "confusion_matrix": {
+      "labels": [
+        "compromised",
+        "malicious",
+        "negligent",
+        "normal",
+        "privilege_abuse"
+      ],
+      "rows_true_cols_pred": [
+        [
+          52,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          76,
+          1,
+          3,
+          0
+        ],
+        [
+          0,
+          1,
+          67,
+          31,
+          0
+        ],
+        [
+          0,
+          0,
+          158,
+          2086,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          43
+        ]
+      ]
+    },
+    "n": 2518,
+    "held_out_users": [
+      "a.fernandes",
+      "l.mathew",
+      "r.krishnan"
+    ]
+  },
+  "feature_importance": [
+    [
+      "role_change_attempt",
+      0.2283
+    ],
+    [
+      "ip_reputation",
+      0.1184
+    ],
+    [
+      "behaviour_deviation",
+      0.1087
+    ],
+    [
+      "device_change",
+      0.0702
+    ],
+    [
+      "after_hours_activity",
+      0.0629
+    ],
+    [
+      "session_duration",
+      0.0601
+    ],
+    [
+      "failed_logins",
+      0.0509
+    ],
+    [
+      "new_external_payees",
+      0.0469
+    ],
+    [
+      "location_change",
+      0.0436
+    ],
+    [
+      "data_volume",
+      0.0406
+    ],
+    [
+      "suspicious_url_count",
+      0.0396
+    ],
+    [
+      "message_count",
+      0.0288
+    ],
+    [
+      "sensitive_resource_access",
+      0.0277
+    ],
+    [
+      "login_hour",
+      0.0247
+    ],
+    [
+      "transfer_amount",
+      0.0168
+    ],
+    [
+      "resource_access_count",
+      0.0135
+    ],
+    [
+      "privilege_level",
+      0.0093
+    ],
+    [
+      "login_day",
+      0.0089
+    ]
+  ]
+}
