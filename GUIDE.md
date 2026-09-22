@@ -2,7 +2,8 @@
 
 > This guide stands on its own. It explains what Lookout is, how every part works, and why it was
 > built this way, with enough real code that you can follow it without opening the repository.
-> Repository: https://github.com/keerthishree20/lookout
+> Repository: https://github.com/keerthishree20/lookout  
+> All projects: https://github.com/keerthishree20
 
 ## Table of Contents
 
