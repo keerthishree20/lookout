@@ -1,0 +1,36 @@
+# Render Blueprint: Dashboard -> New -> Blueprint -> pick this repository.
+# Creates one web service (the site and the API on one URL, from ./Dockerfile)
+# and a free PostgreSQL database, and generates the secrets.
+#
+# Free tier notes: the service sleeps after 15 idle minutes (the first visit
+# after that takes about a minute), the in-memory demo state starts fresh on
+# each wake-up, and a free database expires after 30 days. Lookout keeps
+# running without it, in memory only.
+
+databases:
+  - name: lookout-db
+    plan: free
+    databaseName: lookout
+    user: lookout
+
+services:
+  - type: web
+    name: lookout
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: lookout-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: POST_QUANTUM_KEY
+        generateValue: true
+      # Slower background traffic: the free instance has little CPU.
+      - key: LOOKOUT_TRAFFIC_INTERVAL
+        value: "4"

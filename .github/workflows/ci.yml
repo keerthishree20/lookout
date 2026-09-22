@@ -59,5 +59,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build images
         run: docker compose build
+      - name: Build the single-service image (Render)
+        run: docker build -t lookout-single .
         env:
           JWT_SECRET: ci-only-secret-not-used-anywhere-else-000000

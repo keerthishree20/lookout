@@ -35,6 +35,23 @@ classifier while the image builds), and nginx, which serves the app and proxies 
 WebSocket. All three restart automatically, including after a reboot. The database port is not
 published. API docs are at http://localhost:3000/swagger.
 
+### Online, on Render (free)
+
+The repository includes a Render Blueprint (`render.yaml`) and a single-service `Dockerfile` that
+serves the site and the API from one URL.
+
+1. Sign in at https://dashboard.render.com (the GitHub account that can see this repo).
+2. **New → Blueprint**, pick `keerthishree20/lookout`, and click **Apply**.
+3. Render creates the `lookout` web service and a free `lookout-db` PostgreSQL database, and
+   generates `JWT_SECRET` and `POST_QUANTUM_KEY`. The first build takes about 10 minutes.
+4. Open the service's `https://….onrender.com` URL.
+
+On the free tier the service sleeps after 15 idle minutes, and the first visit after that takes
+about a minute. The demo state starts fresh on each wake-up; the database keeps the history. A free
+database expires after 30 days; Lookout then keeps running in memory. The demo accounts are shown
+on the sign-in page, so anyone with the URL can sign in. That's fine for a demo, and the Super
+Admin can hide them under Settings → System configuration.
+
 ### Without Docker
 
 ```bash
@@ -225,8 +242,8 @@ unusual hour alone isn't enough to lock someone out, and the query four minutes 
   pipeline works; it has never seen a real phishing campaign.
 - **Pure-Python PQC** is not constant-time. Use liboqs or an HSM in production; see
   [docs/quantum_safe.md](docs/quantum_safe.md).
-- **Not deployed publicly.** It runs locally with Docker Compose. Hosting it needs a provider
-  account, which this repo doesn't include.
+- **Hosting is ready, not live.** `render.yaml` deploys it to Render in a few clicks (above), but
+  that needs the owner's Render account, so it hasn't been done from here.
 
 ## Docs
 

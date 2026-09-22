@@ -349,3 +349,11 @@ def test_dashboard_and_user_profile_additions(client, soc):
     assert prof["sudden_changes"], "a jump to 100 should be highlighted"
     trend = client.get("/api/dashboard/risk-trends", headers=soc).json()["buckets"]
     assert "login_anomalies" in trend[0] and "privilege_escalations" in trend[0]
+
+
+def test_unreachable_database_falls_back_to_memory(monkeypatch):
+    """A hosted free database can expire; Lookout must still start."""
+    from lookout.db.persistence import from_env
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://nobody:x@127.0.0.1:1/gone")
+    assert from_env() is None

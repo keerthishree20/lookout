@@ -111,6 +111,9 @@ class Persistence:
         kwargs: dict[str, Any] = {"future": True, "pool_pre_ping": True}
         if self.url.startswith("sqlite"):
             kwargs["connect_args"] = {"check_same_thread": False}
+        else:
+            # Fail fast on an unreachable server rather than hang start-up.
+            kwargs["connect_args"] = {"connect_timeout": 5}
         self.engine = create_engine(self.url, **kwargs)
         self.Session = sessionmaker(self.engine, expire_on_commit=False)
         self.run_id = str(uuid.uuid4())
@@ -330,7 +333,15 @@ def from_env() -> Persistence | None:
     url = os.getenv("DATABASE_URL", "").strip()
     if not url:
         return None
-    p = Persistence(url)
-    p.create_schema()
+    try:
+        p = Persistence(url)
+        p.create_schema()
+    except Exception as e:  # noqa: BLE001 -- any connection failure means "no database"
+        # A hosted free database can expire or be asleep. Run in memory rather
+        # than refuse to start; /api/db/status then says the database is off.
+        import logging
+
+        logging.getLogger("lookout.db").error("database unavailable, running in memory: %s", e)
+        return None
     return p
 

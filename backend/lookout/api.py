@@ -2216,3 +2216,32 @@ def db_status() -> dict[str, Any]:
 # Routes that complete the project specification live in their own module;
 # importing it registers them on this app (and behind the same middleware).
 from . import routes_spec  # noqa: E402,F401
+
+
+# --------------------------------------------------------------------------- #
+# Single-service hosting (e.g. Render): the built React app is served by this
+# same process, so the site and the API share one origin and one URL. Docker
+# Compose uses nginx instead and leaves this unset.
+# --------------------------------------------------------------------------- #
+
+_STATIC = os.getenv("LOOKOUT_STATIC_DIR", "")
+if _STATIC and os.path.isfile(os.path.join(_STATIC, "index.html")):
+    from pathlib import Path
+
+    from fastapi.responses import FileResponse
+
+    _ROOT = Path(_STATIC).resolve()
+
+    @app.get("/{path:path}", include_in_schema=False)
+    def spa(path: str) -> FileResponse:
+        """A real file if one exists (assets, favicon), otherwise index.html so
+        client-side routes like /dashboard work on reload."""
+        if path.startswith("api/"):
+            raise HTTPException(404, "no such API route")
+        target = (_ROOT / path).resolve()
+        if path.startswith("assets/") and not target.is_file():
+            raise HTTPException(404, "no such asset")
+        if path and target.is_file() and _ROOT in target.parents:
+            cache = "public, max-age=2592000, immutable" if path.startswith("assets/") else "no-cache"
+            return FileResponse(target, headers={"Cache-Control": cache})
+        return FileResponse(_ROOT / "index.html", headers={"Cache-Control": "no-cache"})

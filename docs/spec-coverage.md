@@ -59,6 +59,8 @@ doesn't prove.
 
 ## Not done
 
-- **Public deployment.** It runs with Docker Compose on one machine. Hosting it needs a provider
-  account, which this repository doesn't have.
+- **Public deployment** is prepared, not live: `render.yaml` plus the root `Dockerfile` deploy it to
+  Render as one service with a free PostgreSQL database, but someone has to click "Apply" in their
+  Render account. The image was tested locally under Render's 512 MB limit: it peaked at 281 MB
+  through both browser test runs.
 - **Real data.** Every model is trained, and every number is measured, on synthetic data.

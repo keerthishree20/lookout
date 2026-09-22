@@ -1,0 +1,12 @@
+.git
+.github
+**/node_modules
+**/.venv
+**/__pycache__
+**/.pytest_cache
+frontend/dist
+backend/trained_models/*.joblib
+backend/tests
+.env
+*.md
+!frontend/**/*.md
