@@ -31,9 +31,17 @@ algorithms, not instead of them.
   decision is the one Lookout made. A signature made today with Ed25519 could be forged
   retroactively by whoever owns a quantum computer later, destroying the log's value. ML-DSA
   signatures can't be.
-- **Credentials and key material.** Vault secrets are sealed with ML-KEM + AES-GCM. This covers
-  the "harvest now, decrypt later" case: a blob stolen today stays unreadable after quantum
-  computers arrive.
+- **Credentials, configuration and key material.** The protected store (`pq_vault.py`) seals, at
+  start-up:
+  - sensitive configuration (`JWT_SECRET`, `DATABASE_URL` with its password, any API key);
+  - synthetic stand-ins for a PAM vault (a core-banking service account, a payment-gateway API key,
+    an HSM operator PIN);
+  - a snapshot of the detection policy (a security artefact);
+  - the ML-DSA **audit signing seed itself**. This is key wrapping: the key that protects the audit
+    log is protected too.
+
+  This covers the "harvest now, decrypt later" case: a blob stolen today stays unreadable after
+  quantum computers arrive. The API lists what is sealed, never the plaintexts.
 
 ## 4. Key generation
 
@@ -63,6 +71,12 @@ store = {kem_ciphertext, nonce, ciphertext, algorithm}
 
 Unsealing decapsulates with the private key and decrypts. Binding the credential name as
 associated data means a blob moved to another name fails to decrypt.
+
+**Checking.** `POST /api/crypto/artefacts/verify` reopens every artefact and compares it with the
+SHA-256 digest taken when it was sealed. A blob that won't open (wrong key, edited ciphertext) or
+opens to something else fails. A failure raises a **"Quantum-Safe Key/Artefact Security Event"**
+alert and incident. So does an audit log that no longer verifies. The console's "Corrupt" button
+flips one ciphertext byte to demonstrate it; set `allow_tamper_demo` off outside a demo.
 
 ## 6. Key storage
 

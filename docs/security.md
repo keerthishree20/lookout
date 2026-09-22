@@ -13,22 +13,38 @@ What protects Lookout itself, as opposed to what it detects.
 - Every token carries a session ID that is checked against a **server-side registry**. Sign-out,
   a SOC revocation, or the engine blocking the session invalidates it immediately, so a stolen
   but unexpired token is useless.
-- The sign-in itself is an event: the engine scores it (new device, impossible travel, password
-  guessing) and can refuse it with a 403 even when the password is right.
+- The sign-in itself is an event: the engine scores it (time, device, network, country, impossible
+  travel, concurrent sessions, password guessing). A MEDIUM sign-in gets no session until a
+  simulated one-time code is confirmed (`/api/auth/mfa/verify`; three wrong codes end the
+  challenge, and each is scored). A HIGH one is let in, but only to the honeypot.
 - **Rate limiting** (`LoginLimiter`): 10 failures in 5 minutes locks an account, and more than 60
   attempts a minute from one IP is refused with 429. Wrong passwords are also scored, so
   guessing trips the credential-misuse detector.
 
 ## Authorisation
 
-- Four account kinds: employee, manager (an employee with the manager role), SOC analyst, and
-  super admin.
+- Five roles: employee, manager (an employee with the manager role), privileged administrator
+  (DBA, sysadmin, domain admin: privilege level 4 or more), SOC analyst, and super admin.
+- Privileged administrators work in the portal's Admin console. They can only manage accounts and
+  grant roles *below* their own level, and every operation is a scored admin event, so the same
+  detectors watch the administrators. Anyone else who calls those routes gets a 403 **and** a
+  privilege-escalation attempt on their record.
 - Path-prefix access is enforced in one middleware (see `api.md`), so a new route is
   console-only unless it is deliberately put under an employee prefix.
 - Employee handlers act on the signed-in employee only; the actor is never read from the
   request body.
 - The ground-truth "is this an attack" label on synthetic events is stripped from every API
   response and is never read by a detector.
+
+## Input handling
+
+- Every request body is a Pydantic model with types, lengths and patterns (message channel,
+  audience, recipient count, OTP format, IP format, known cities).
+- Free text (message body, subject, recipient, attachment names, admin reasons) goes through
+  `sanitize()`: Unicode NFKC normalisation, and control and bidi-override characters stripped. Those
+  characters are how a link or a filename is made to display as something else
+  (`invoice‮fdp.exe`).
+- The console renders all of it as text through React, never as HTML.
 
 ## Transport and browser
 
@@ -63,7 +79,7 @@ persisted to `audit_logs` with its hashes. `GET /api/audit/verify` checks the si
 
 ## Known gaps
 
-- There is no real MFA: step-up is simulated with a displayed OTP.
+- There is no real MFA: step-up is simulated with a one-time code shown on screen.
 - Demo credentials are public. Before any real use, change them (or set
   `LOOKOUT_SHOW_DEMO_ACCOUNTS=0` and replace `DEMO_ACCOUNTS`).
 - `POST /api/audit/tamper` exists for the demo. Set `LOOKOUT_ALLOW_TAMPER=0` outside a demo.

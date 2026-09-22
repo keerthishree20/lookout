@@ -50,8 +50,12 @@ that justify the score, and a proportionate response:
 |---|---|---|
 | 🟢 Low | 0–29 | Allow and log |
 | 🟡 Medium | 30–59 | Demand a second factor (risk-based authentication) |
-| 🔴 High | 60–84 | Block (messages: quarantine for review) |
-| ⚫ Critical | 85–100 | Block, revoke the session, page the SOC |
+| 🟠 High | 60–79 | Block (messages: quarantine for review) |
+| 🔴 Critical | 80–100 | Block, revoke the session, page the SOC |
+
+These are the specification's bands and colours. The critical band started at 85 in the first
+version and moved to 80 to match the spec. The Super Admin can move all three thresholds at
+runtime.
 
 Every decision goes into an audit log that is hash-chained and signed with a post-quantum
 signature scheme, so nobody can quietly rewrite it later, and the signatures will still hold once
@@ -76,7 +80,7 @@ quantum computers can break today's schemes.
 | Narrator | Gemini over HTTPS (optional) | Prose summaries; a deterministic template is the default |
 | Frontend | React 19 + Vite + React Router 7 + Tailwind 4 + Recharts + Axios | A multi-page console that builds to static files nginx can serve |
 | Deployment | Docker Compose + nginx | One command starts the database, API and site |
-| Tests | pytest (275) + Playwright browser checks | Unit, pipeline, API, roles, database, ML and a detection-quality floor |
+| Tests | pytest (299) + Playwright browser checks | Unit, pipeline, API, roles, database, ML and a detection-quality floor |
 
 ---
 
@@ -99,7 +103,7 @@ cd lookout/backend
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-dev.txt
-python -m pytest -q                      # 275 passed
+python -m pytest -q                      # 299 passed
 python -m lookout.evaluate               # precision / recall report
 export JWT_SECRET=$(python -c "import secrets; print(secrets.token_urlsafe(48))")
 uvicorn lookout.api:app --port 8077      # API + live traffic
@@ -186,7 +190,7 @@ unusual. A test checks the baseline mean is unchanged after the exfiltration sce
 
 ## 6. The Detectors
 
-Seventeen detectors, each a function `(event, baseline, ctx) -> list[Signal]`. A `Signal` carries its
+Twenty-seven detectors, each a function `(event, baseline, ctx) -> list[Signal]`. A `Signal` carries its
 points, a complete sentence, and which threat classes it is evidence for:
 
 ```python
@@ -218,6 +222,27 @@ Signal(
 | | `bulk_message_blast` | recipients far above sender's norm, or from an unauthorised role |
 | | `unauthorized_customer_comms` | customer messaging from a role without the mandate |
 | Transfers | `suspicious_transfer` | over the role's limit or far above personal norm, a new outside payee, out of hours; a role with no transfer mandate is blocked outright |
+| Sign-in | `compound_login_anomaly` | three or four of {rare hour, new device, new country, new network} at once |
+| Sessions | `concurrent_sessions` | a second live session from another device or network |
+| | `login_frequency` | five or more sign-ins in an hour |
+| | `session_context_change` | one session's requests suddenly from a different device or /24 network (a stolen token) |
+| | `query_rate_burst` | 60+ database queries in five minutes (the spec's "10 an hour, then 500 in 5 minutes") |
+| | `failed_authorization` | refused requests; three in 30 minutes means someone is probing |
+| Content | `phishing_language` | the NLP content model says the text reads like a scam (section 11) |
+| | `sensitive_data_leak` | card (Luhn-checked), Aadhaar, PAN, IFSC, account numbers or credentials in the text; worse to a personal mailbox |
+| | `risky_attachment` | executables, double extensions (`statement.pdf.exe`), macro documents, HTML files, large data exports |
+| | `repeated_message` | the same *suspicious* text sent three or more times in an hour |
+
+### Why a compound sign-in detector
+
+The spec says a sign-in at 02:30 from a new device, a new country and an unknown IP "should
+generate a high-risk login". Scored as four separate weak signals, it reached 34: medium. The
+spec's own example scenario also says a new device at 02:30 should get *additional verification*,
+not a block. Both are right: each novelty alone is ordinary (people get new laptops and travel),
+but all of them at once is how a stolen password looks. So the compound detector adds nothing for
+one or two novelties, 12 points for three and 30 for four. Now four novelties score 66.5 (HIGH,
+blocked into the honeypot) and the spec's step 2 scores 46.9 (MEDIUM, a second factor). Benign
+traffic never has three at once, so the false-positive count stayed at zero.
 
 ### Why logarithmic volume scoring
 
@@ -386,9 +411,47 @@ After folding, `levenshtein(host, corporate) ≤ 2` flags lookalikes such as `me
 foreign domain, shorteners, bare IPs, punycode, abuse-heavy TLDs, credential bait (`kyc`, `otp`,
 `verify` ...), plain HTTP, deep subdomain chains.
 
-Message risk combines URL reputation, sender behaviour (z against their own send history), content,
-audience and privilege, which is the formula from the brief. The graded outcomes: deliver, hold for
-step-up, quarantine (a reviewer can release it, and the release is audited), or block and page.
+URLs get lexical features too: length, a `user@host` disguise (`https://meridianbank.com@login-verify.top`
+really goes to `login-verify.top`), percent-encoding, redirect parameters (`?url=https%3A...`),
+hyphen- or digit-stuffed hosts. Each link gets a 0-100 **URL risk**. Domain age and live redirect
+chains need a network lookup, which Lookout deliberately doesn't do.
+
+### Reading the words: the content model
+
+A scam doesn't need a link: "This is the fraud team, reply with the OTP you received". The spec
+asks for "an ML/NLP model where appropriate" rather than keywords, so `nlp.py` trains a TF-IDF (word
+1-2 grams) + logistic regression model on 3,000 template messages, about 30% scams. The
+explanation names the phrases that pushed the probability up:
+
+```python
+row = self.pipeline.named_steps["tfidf"].transform([text])
+contributions = row.multiply(self._coef).tocsr()       # TF-IDF weight x coefficient
+idx = contributions.indices[np.argsort(contributions.data)[::-1]]
+phrases = [self._vocab[i] for i in idx if self._coef[i] >= self._strong][:top]
+```
+
+The first version flagged "Hi team, lunch at 1?" at 0.53, because short neutral text sat near
+the decision boundary. Adding ordinary staff chat to the corpus moved it to 0.07. The detector
+fires at 0.7. The corpus is synthetic and the held-out F1 of 1.0 only proves the pipeline runs.
+
+Other content checks: `sensitive_data_leak` counts PII by kind and never repeats the values (a
+test caught the first 12 digits of a card number also counting as an Aadhaar number);
+`risky_attachment` reads attachment metadata; `repeated_message` catches a campaign split into
+batches, but only when the text is suspicious, since "your statement is ready" repeats all day.
+
+### The message risk score
+
+The spec's formula is URL + sender behaviour + content + destination + privilege + volume. Lookout
+doesn't compute a second, separate score: `message_risk.py` splits the one score that decided the
+message into those six parts, moving the privilege multiplier's extra into "privilege" and the
+personal-mailbox points into "destination", so the parts always add up to the total.
+
+The graded outcomes: deliver, hold for step-up, quarantine, or block and page. A held message can
+be **released**, **blocked** (confirmed bad, and a strike against the sender's session),
+**deleted**, or put under **investigation** (still held, and filed in the sender's incident). All
+four are audited. Who may message customers at all, and who may run bulk campaigns, is a
+configurable communication policy; a privileged administrator messaging customers always needs a
+second factor.
 
 ---
 
@@ -408,6 +471,15 @@ def seal(self, plaintext, aad=b""):
     ct = AESGCM(_derive_key(shared)).encrypt(nonce, plaintext, aad)
     return SealedBlob(b64(kem_ct), b64(nonce), b64(ct), self.algorithm)
 ```
+
+The spec asks for protected credentials, configuration, key material and audit artefacts, kept
+clearly apart from the classical crypto that signs people in. `pq_vault.ProtectedStore` seals, at
+start-up, the JWT secret, the database URL, synthetic PAM-vault credentials, a policy snapshot and
+the audit-signing seed itself (key wrapping), and stores a SHA-256 digest of each. "Verify every
+artefact" reopens them all. The console's "Corrupt" button flips one ciphertext byte; AES-GCM
+refuses to open it, and Lookout raises a **Quantum-Safe Key/Artefact Security Event**, which pops
+up on every SOC screen over the WebSocket. A table on the same page lists what each layer uses and
+whether it is classical or post-quantum. PBKDF2, HMAC and SHA-256 are listed as classical.
 
 The vault path is the AES-GCM associated data, so a sealed blob moved to a different path won't
 decrypt (tested). Both schemes sit behind small interfaces with classical fallbacks. On a host
@@ -463,14 +535,21 @@ Chennai, Bengaluru, Mumbai and Singapore, each with their own hours, devices, qu
 messaging habits. The simulation includes the awkward benign cases: managers running 400–2,500-recipient
 campaigns, weekend on-call admins, one or two mistyped passwords a day.
 
-`evaluate.py` trains on 30 days and scores a held-out week plus the nine scenarios:
+`evaluate.py` trains on 30 days and scores a held-out week plus all the scenarios:
 
 ```
 precision              : 1.000
-recall                 : 0.974
-false positive rate    : 0.0000  (0 of 872 benign)
-threat classification  : 1.000  (38 of 38 detected incidents named correctly)
+recall                 : 0.976
+false positive rate    : 0.0000  (0 of 873 benign)
+threat classification  : 1.000  (40 of 40 detected incidents named correctly)
+policy step-ups        : 8  (low-score events given MFA because policy requires it)
 ```
+
+**Policy step-ups** are counted separately on purpose. The spec says privileged administrators
+need a second factor for customer messages, so n.pillai's ordinary messages now get one. Counting
+those as false positives would punish a mandatory control. Counting them as detections, when an
+attack only reaches a policy step-up, would inflate recall. So the evaluator reports them on their
+own line and scores neither way.
 
 The one miss is on purpose: the 02:14 login that opens the exfiltration scenario is allowed,
 because an unusual hour alone isn't enough to lock someone out. The query four minutes later is
@@ -489,12 +568,13 @@ false positive. Fixing the simulation, not the detector, was the right call.
 
 ## 16. Roles, Sign-in and Sessions
 
-There are four kinds of people in the system:
+There are five roles:
 
 | Kind | Accounts | Can |
 |---|---|---|
-| Employee | 12 staff, e.g. `r.krishnan` / `Teller@Krishnan1` | use the employee portal only |
+| Employee | 12 staff, e.g. `r.krishnan` / `Teller@Krishnan1` | the portal: customers, transfers, access requests, own profile and activity, open protected systems their role allows |
 | Manager | `l.mathew`, `v.rao` (employees with the manager role) | the portal, plus **My team**: their team's risk, and approving access requests |
+| Privileged administrator | `t.banerjee` (DBA), `h.qureshi` (sysadmin), `n.pillai` (domain admin) | the portal, plus the **Admin console**: disable or enable accounts and change roles *below their own level*, edit the communication policy. Every operation is a scored admin event |
 | SOC analyst | `soc.analyst` / `SocWatch@2026` | the whole console |
 | Super admin | `super.admin` / `SuperAdmin@2026` | the console, plus live policy and final access approval |
 
@@ -523,6 +603,18 @@ The sign-in is also an **event**. The engine scores it like anything else (new d
 travel, a burst of failures), and a blocked login returns 403 with no token even when the password
 was right. On top of that, `LoginLimiter` refuses more than 10 failures in 5 minutes for an account,
 or more than 60 attempts a minute from one IP, with a 429.
+
+**What the sign-in returns** depends on its risk. LOW: a session, plus
+`{risk_score, risk_level, reason[]}`. MEDIUM: no session yet, a simulated one-time code to confirm
+at `/api/auth/mfa/verify`, and each wrong code scored as a failed sign-in. HIGH: a session, but
+into the honeypot. The sign-in page has a **Sign-in context** selector (new laptop at 02:30;
+02:30 from a new country on an unknown device; New York), because a demo can't really change your
+device or city. The server applies it to the sign-in event: device, IP, city and hour.
+
+**Privilege escalation, the spec's way.** If a teller calls an admin-console route, they get a
+403, and the attempt is ingested as a `PRIV_ESCALATE` event aimed at domain admin. The escalation
+detector scores it, and the teller likely lands in the honeypot. A refusal that isn't also a
+signal would let someone probe for free.
 
 **Bug found by the browser test:** a blocked login used to leave a usable session behind, so the
 "blocked" attacker could still read the vault. The fix revokes the session whenever the response
@@ -579,6 +671,12 @@ didn't have. Moving it into FPDF's `footer()` hook fixed that.
 
 Managers see their team's risk but are never told that someone is in the honeypot. The browser
 test checks that the words don't appear anywhere on the manager's page.
+
+**My profile** shows the employee their own details and recent activity, and lets them open
+protected systems. It never shows risk scores, which would teach an insider where the thresholds
+are. Opening a system runs the same policy engine as the SOC's access check: out of role is
+**denied** and logged as a failed authorisation; medium current risk, or a privileged account
+opening a critical system, needs a **second factor**; high risk gets **read-only** access.
 
 ---
 
@@ -696,6 +794,13 @@ preflight rejected `PUT` because only GET and POST were allowed. Second, the sig
 overflowed a phone screen by 554 px, because a CSS grid column sized itself to a long table.
 `grid-cols-[minmax(0,1fr)]` fixed it.
 
+The long tables (alerts, incidents, messages, quarantine, audit log) have search, filters and
+pagination through a shared `usePaged` hook, and details open in a modal dialog. **Bug:** the
+quarantine dialog first rendered clipped inside its card, because a card's `backdrop-blur`
+creates a containing block for `position: fixed` children. Rendering dialogs through a portal on
+`document.body` fixed it. The screenshot check caught this, where a "dialog opened" assertion had
+passed.
+
 ---
 
 ## 22. Docker and CI
@@ -749,16 +854,20 @@ container), the frontend build, and a Docker image build.
 | Feature | File |
 |---|---|
 | Per-identity online baselines | `baselines.py` |
-| 17 explainable detectors, including transfers | `rules/` |
+| 27 explainable detectors: sign-in, session, privilege, data, message links and content, transfers | `rules/` |
+| NLP message-content model (synthetic corpus) | `nlp.py` |
+| Six-part message risk breakdown; 0-100 URL risk | `message_risk.py`, `urlcheck.py` |
 | IsolationForest with attributions, capped contribution | `anomaly.py` |
 | Privilege-weighted fusion, live policy bands, graded response | `scoring.py`, `policy.py` |
 | Policy floors: hostile customer links reviewed, no-mandate transfers blocked | `scoring.decide` |
 | Insider classification, sticky compromise | `scoring.classify` |
 | Session revocation, origin lock-out, persistence detection | `context.py` |
 | Offline URL reputation and scheme-less link extraction | `urlcheck.py` |
-| Message gateway + quarantine with audited release | `api.py`, `pipeline.release` |
-| Four roles, JWT + revocable sessions, rate limiting | `auth.py`, `api.py` |
-| Employee portal: customers, transfers, access requests, team view | `portal.py`, `banking.py` |
+| Message gateway; quarantine release / block / delete / investigate | `api.py`, `routes_spec.py`, `pipeline.py` |
+| Five roles, JWT + revocable sessions, rate limiting, simulated MFA on sign-in | `auth.py`, `api.py` |
+| Employee portal: customers, transfers, access requests, own profile and activity, PAM requests, team view, admin console | `portal.py`, `banking.py`, `routes_spec.py` |
+| Post-quantum protected store with key wrapping; quantum-safe integrity alerts | `pq_vault.py` |
+| Super Admin roles and system configuration | `routes_spec.py`, `runtime.py` |
 | Honeypot: decoy PDFs, shadow-ledger transfers, canary tracing | `portal.py`, `banking.py` |
 | Alerts and incident management | `incidents.py` |
 | RandomForest classifier on 10,600 sessions, with SHAP | `lookout/ml/`, `ml/` |
@@ -766,17 +875,18 @@ container), the frontend build, and a Docker image build.
 | ML-DSA-65 audit checkpoints, ML-KEM-768 credential sealing | `crypto.py`, `audit.py` |
 | Template / Gemini narrator | `narrator.py` |
 | 9 labelled scenarios, including the spec's attack story | `scenarios.py` |
-| React + Vite console, 17 pages, WebSocket live feed | `frontend/` |
+| React + Vite console, 17 pages, WebSocket events for alerts, incidents, risk, messages and sessions | `frontend/` |
+| Section-by-section spec coverage | `docs/spec-coverage.md` |
 | Docker Compose + nginx; CI with PostgreSQL and image builds | `docker-compose.yml`, `.github/workflows/ci.yml` |
-| 275 tests | `backend/tests/` |
+| 299 tests | `backend/tests/` |
 
 ### Tech Stack at a Glance
 
 ```
 Backend   Python 3.12 · FastAPI · Pydantic v2 · SQLAlchemy 2 · PostgreSQL 16 · PyJWT
-ML        scikit-learn (IsolationForest, RandomForest) · SHAP · numpy · joblib
+ML        scikit-learn (IsolationForest, RandomForest, TF-IDF + logistic regression) · SHAP · pandas · numpy · joblib
 Crypto    ML-DSA-65 (dilithium-py) · ML-KEM-768 (kyber-py) · AES-256-GCM · HKDF · Ed25519/X25519 fallback
 Frontend  React 19 · Vite · React Router 7 · Tailwind CSS 4 · Recharts · Axios · lucide-react
 Deploy    Docker Compose · nginx
-Testing   pytest (275) · Playwright (browser checks, run from outside the repo) · GitHub Actions
+Testing   pytest (299) · Playwright (browser checks, run from outside the repo) · GitHub Actions
 ```

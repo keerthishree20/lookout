@@ -1,6 +1,6 @@
 # Machine learning
 
-Lookout uses two models. Neither one decides on its own.
+Lookout uses three models. None of them decides on its own.
 
 | | IsolationForest | RandomForest classifier |
 |---|---|---|
@@ -9,6 +9,8 @@ Lookout uses two models. Neither one decides on its own.
 | Trained on | benign history from the start-up replay | `datasets/insider_sessions.csv` |
 | Role | adds up to 22 of 100 points to the score | second opinion shown beside the rules' classification, with SHAP |
 | Code | `lookout/anomaly.py` | `lookout/ml/` |
+
+The third, the **message-content model**, is described at the end.
 
 The rules make the decision because each rule can say in a sentence why it fired. A model that
 can't explain itself shouldn't be the reason an employee is locked out. The classifier is there
@@ -42,6 +44,11 @@ told apart by one feature:
   mis-addressed bulk message.
 
 ## Pipeline
+
+Raw data → cleaning → features → split → train → evaluate → serialise → inference. Cleaning uses
+pandas (`lookout/ml/cleaning.py`): it drops duplicate sessions, incomplete rows and unknown labels,
+clips out-of-range values, and reports how many rows each step touched. On the current dataset it
+changes nothing (0 rows dropped, 0 values clipped), and the report says so rather than assuming it.
 
 ```bash
 cd ml
@@ -99,3 +106,18 @@ pipeline works and where it is weak. They say nothing about accuracy on a real b
 features pushing towards the predicted class, each with its value and signed contribution. The
 decision detail panel in the console shows them next to the rule signals, and they are also
 returned by `GET /api/risk/{event_id}/explanation`.
+
+## Message-content model
+
+`lookout/nlp.py`: TF-IDF over word 1-2 grams, then logistic regression. It answers "does this
+text read like a scam?", so a message with no link at all ("reply with the OTP you received") is
+still caught, and detection isn't a keyword list.
+
+- **Corpus:** 3,000 messages generated from templates in `nlp.py`, about 30% scams, the rest bank
+  notices and ordinary staff chat. **Synthetic.**
+- **Held-out result:** precision, recall and F1 of 1.0 on 750 messages. That only shows the
+  pipeline works: the test messages come from the same templates as the training ones. It says
+  nothing about real phishing.
+- **Use:** the `phishing_language` detector fires at a probability of 0.7 or more and adds 10-24
+  points. Its explanation names the phrases that pushed the score up.
+- **Training:** once, on first use, cached for the life of the process; never per request.

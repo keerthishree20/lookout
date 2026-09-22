@@ -11,12 +11,12 @@ their transfers move no real money. Every decision goes into an audit log signed
 **ML-DSA-65 (NIST FIPS 204)**, and credentials are sealed with **ML-KEM-768 (FIPS 203)**.
 
 ```
-event ─► baseline ─► 17 detectors + IsolationForest ─► fused, explained score ─► graded response
+event ─► baseline ─► 27 detectors + IsolationForest + NLP content model ─► fused, explained score ─► graded response
       ─► session containment ─► RandomForest second opinion + SHAP ─► alerts, incidents, honeypot
       ─► hash-chained audit, ML-DSA signed ─► PostgreSQL + live console over WebSocket
 ```
 
-**Stack:** FastAPI · SQLAlchemy 2 + PostgreSQL 16 · scikit-learn + SHAP · dilithium-py / kyber-py ·
+**Stack:** FastAPI · SQLAlchemy 2 + PostgreSQL 16 · scikit-learn + SHAP + pandas · dilithium-py / kyber-py ·
 React 19 + Vite + React Router + Tailwind 4 + Recharts · Docker Compose + nginx.
 
 ## Run it
@@ -56,7 +56,7 @@ Without `DATABASE_URL`, Lookout runs in memory. Without `GEMINI_API_KEY`, incide
 come from a template. If the API is not on `localhost:8077`, set `VITE_API_URL` for the frontend.
 Every variable is described in `.env.example`.
 
-Tests: `cd backend && python -m pytest` (275 tests; set `LOOKOUT_TEST_DATABASE_URL` to also run
+Tests: `cd backend && python -m pytest` (299 tests; set `LOOKOUT_TEST_DATABASE_URL` to also run
 the database tests against PostgreSQL). Detection report: `python -m lookout.evaluate`.
 
 ## Sign-in
@@ -64,7 +64,7 @@ the database tests against PostgreSQL). Detection report: `python -m lookout.eva
 | Page | Who | What it does |
 |---|---|---|
 | `/login` | everyone | sign in; lists the demo accounts |
-| `/employee` | the 12 employees | customer book (PII masked), PDF export, fund transfers, access requests; managers also get **My team** |
+| `/employee` | the 12 employees | customer book (PII masked), PDF export, fund transfers, access requests, **My profile** (own profile, own activity, protected systems); managers also get **My team**; privileged administrators (DBA, sysadmin, domain admin) get the **Admin console** |
 | `/dashboard` and the rest of the console | SOC analyst, super admin | 17 pages: dashboard, simulation, live activity, alerts, incidents, honeypot, users, sessions, access control, privileged access, messages, message scanner, quarantine, audit & quantum-safe, ML insights, security policies, settings |
 
 Demo credentials (a simulated bank; passwords are stored as salted PBKDF2 hashes):
@@ -86,8 +86,13 @@ Demo credentials (a simulated bank; passwords are stored as salted PBKDF2 hashes
 | 11 | `h.qureshi` | `Sysadmin@Qureshi11` | sysadmin, Singapore |
 | 12 | `n.pillai` | `Admin@Pillai12` | domain admin, Chennai |
 
-Every sign-in, including wrong passwords, is scored by the engine. Guessing at an account trips
-the password-guessing detector and the rate limiter (429). Employees can't reach any console
+Every sign-in, including wrong passwords, is scored by the engine and the response carries the login
+risk (`risk_score`, `risk_level`, `reason`). A MEDIUM sign-in must pass a simulated one-time code
+first; a HIGH one silently lands in the honeypot. The sign-in page's **Sign-in context** selector
+simulates where a sign-in comes from (a new laptop at 02:30; 02:30 from a new country on an unknown
+device and IP; New York), since the demo can't really change your device or city. You can also sign
+in with the work email (`v.rao@meridianbank.example`). Guessing at an account trips the
+password-guessing detector and the rate limiter (429). Employees can't reach any console
 route; this is enforced in one middleware. Managers see their team's risk and approve access
 requests, but are never told that someone is in the honeypot.
 
@@ -120,40 +125,41 @@ tab, sign in as `soc.analyst` and open **Honeypot**.
 
 ## Spec coverage
 
-| Spec section | Where it lives |
-|---|---|
-| 4 User roles | `auth.py` accounts; `ROUTE_ACCESS` in `api.py`; employee, manager, SOC analyst, super admin |
-| 5 Authentication | PBKDF2 hashes, HS256 JWT + server-side session registry, `LoginLimiter`, risk-scored sign-in |
-| 6–7 Abnormal login, impossible travel | `rules/identity.py` |
-| 8–9 PAM, privilege escalation | `rules/privilege.py`; access requests (employee → manager → super admin); Privileged access page |
-| 10 Session monitoring | `context.py` containment; Sessions page with revoke |
-| 11 Credential misuse | `rules/identity.py` (failed-login bursts, success after a run of failures) and `rules/data.py` (vault hoarding) |
-| 12 Insider classification | `scoring.classify`: normal / negligent / malicious / compromised / privilege abuse, plus the ML second opinion |
-| 13 Behavioural analytics | `baselines.py` per-person profiles + `anomaly.py` IsolationForest |
-| 14–21 Message gateway, content, URL risk, message risk score, actions, quarantine, privileged comms, bulk fraud | `urlcheck.py`, `rules/messaging.py`, `POST /api/messages/scan`; Message scanner and Quarantine pages |
-| 22 Risk-based access control | score bands → allow / step-up (factor strength scales with privilege) / block; `POST /api/access/check` |
-| 23 Explainable AI | every signal carries a sentence and its points; SHAP for the classifier |
-| 24 Alerts | `incidents.py` alert book; live over WebSocket |
-| 25–26 Dashboard, user risk profile | Dashboard, Users and user detail pages |
-| 27 Incident management | `incidents.py`; assign, notes, status, response actions |
-| 28 Audit logging | `audit.py` hash chain; `audit_logs` table re-verified from the database |
-| 29 Quantum-safe module | `crypto.py`; [docs/quantum_safe.md](docs/quantum_safe.md) |
-| 30 Database design | 15 tables; [docs/database.md](docs/database.md) |
-| 31 API design | [docs/api.md](docs/api.md); `/swagger`, `/redoc` |
-| 32–34 ML pipeline, dataset, evaluation | `ml/`, `backend/lookout/ml/`; [docs/ml.md](docs/ml.md) |
-| 35–37 Frontend pages, UI, real-time | React + Vite, 17 console pages, WebSocket live feed |
-| 38–39 Demo mode, example scenario | Simulation page; the `attack_story` scenario replays the spec's example |
-| Honeypot transfer page | `portal.py`, `banking.py` (see above) |
+Every section of the project specification (39 sections plus the honeypot requirement) is listed,
+with its status and where it's built, in **[docs/spec-coverage.md](docs/spec-coverage.md)**. In
+short: all 39 are done. Section 39's example scenario matches the spec's *statuses* but not its
+illustrative scores, and public deployment isn't done. Highlights:
+
+- **27 detectors**: sign-in (unusual time, new device/network/country, compound novelty, impossible
+  travel, failed-login bursts, credential misuse, concurrent sessions, sign-in frequency), session
+  (hijacked token, query bursts, failed authorisation, replay after revocation), privilege
+  (escalation, out-of-scope admin work, dormant accounts), data (mass reads, off-hours access, bulk
+  writes, vault hoarding), messages (phishing links, bulk blasts, unauthorised customer messages,
+  scam language, PII leaks, risky attachments, repeated campaigns) and transfers.
+- **Three models**: an IsolationForest for "is this unusual for them", a RandomForest with SHAP for
+  "what kind of insider is this", and a TF-IDF + logistic-regression content model for "does this
+  message read like a scam". None of them decides alone.
+- **Message risk** is broken into the spec's six parts (URL, sender behaviour, content,
+  destination, privilege, volume), which always add up to the score. **URL risk** is 0-100.
+- **Quarantine**: Release, Block, Delete, Investigate. **Communication policy** (who may message
+  customers or run bulk campaigns) is configurable.
+- **Post-quantum protected store**: sensitive configuration, credentials and the audit-signing key
+  itself (key wrapping) sealed with ML-KEM-768; a failed check raises a "Quantum-Safe Key/Artefact
+  Security Event".
+- **Roles**: employee, manager, privileged administrator, SOC analyst, super admin.
 
 ## Scenarios
 
 On start-up the API replays a month of synthetic activity for 12 staff at a fictional bank to
 build baselines and train the anomaly model, then keeps a trickle of ordinary work flowing. These
-scenarios can be run from the **Simulation** page:
+scenarios can be run from the **Simulation** page. The first nine are the spec's §38 buttons
+("Simulate Normal Login", "Simulate Impossible Travel", and so on):
 
 | Scenario | What happens | Lookout's response |
 |---|---|---|
-| Abnormal login | known analyst, 02:30, unseen laptop, new country | step-up; classed *compromised* |
+| Abnormal login | known analyst, 02:30, unseen laptop, new country, unknown IP (the spec's §5 example) | HIGH, blocked; classed *compromised* |
+| Impossible travel | Bengaluru at 10:00, New York at 10:20 (the spec's §7 example) | blocked and paged; *compromised* |
+| Phishing email | one customer gets a KYC scam with a lookalike link, asking for their password | quarantined; *malicious* |
 | Compromised account | Chennai login, then Kyiv 28 minutes later on an unknown device, then an 18,400-row query | impossible travel; blocked, session killed; classed *compromised* |
 | Privilege escalation | loans officer tries to become domain admin four times, then edits IAM | blocked and paged; *privilege abuse* |
 | Bulk phishing | 50,000 customers get an SMS with `meridian-bank.secure-verify.top/re-kyc` | blocked and paged; lookalike domain named |
@@ -161,7 +167,7 @@ scenarios can be run from the **Simulation** page:
 | Credential stuffing | 7 failures from Lagos, a success, 9 vault reads | burst detected, origin locked, every vault read refused |
 | Transfer fraud | teller sends ₹1.9L, ₹4.8L and ₹4.95L to new outside accounts at 21:40 | stepped up, then blocked and paged; *malicious*; honeypot |
 | Negligent insider | teller emails 900 customers a *genuine* statement link | quarantined, classed *negligent*, never paged |
-| Attack story | the spec's example on one DBA: normal login, new device at 02:30, sensitive DB, escalation, phishing link | 2 allow → 32 step-up → 73 block → 100 block and page. Same order of responses as the spec, though the scores differ from its illustrative 68 and 78 |
+| Attack story | the spec's §39 example on one DBA: normal login, new device at 02:30, sensitive DB, escalation, phishing link | 2.5 allow → 46.9 step-up → 73.2 block → 100 block and page. Same statuses as the spec; its example scores (12, 68, 78, 92) are illustrative and Lookout's differ |
 
 ## Detection quality, and what it means
 
@@ -170,9 +176,10 @@ scenarios can be run from the **Simulation** page:
 | | |
 |---|---|
 | precision | 1.000 |
-| recall | 0.974 (38 of 39 incident events) |
-| false positives | 0 of 872 held-out benign events |
-| threat classification | 38 of 38 detected incidents named correctly |
+| recall | 0.976 (40 of 41 incident events) |
+| false positives | 0 of 873 held-out benign events |
+| threat classification | 40 of 40 detected incidents named correctly |
+| policy step-ups | 8 (a privileged administrator's ordinary customer messages, which policy says need MFA: a mandatory control, reported separately and not counted as a detection) |
 
 The supervised classifier, on 10,600 synthetic sessions: accuracy 0.973 and macro F1 0.903 on a
 stratified split. It is weakest on **negligent** insiders (recall 0.64), and on employees it has
@@ -197,6 +204,8 @@ unusual hour alone isn't enough to lock someone out, and the query four minutes 
   never becomes "normal".
 - **Policy floors.** A customer message with a hostile link is at least quarantined, whatever the
   score, because step-up auth can't stop an insider who holds their own second factor.
+- **Bands follow the spec**: 0-29 low, 30-59 medium, 60-79 high, 80-100 critical. The Super Admin
+  can move them.
 - **Checkpoint signing.** ML-DSA signing takes about 90 ms, so every entry is hash-linked and the
   chain head is signed every 25 entries and after anything critical.
 - **The ground-truth label never leaves the server.** Detectors never read it, and the API
@@ -212,6 +221,8 @@ unusual hour alone isn't enough to lock someone out, and the query four minutes 
 - **Step-up is simulated.** The OTP is displayed; there's no real second factor.
 - **One process.** Sessions, rate limits and the live feed are per process, so several API
   replicas would need Redis or similar.
+- **The message-content model** is trained on template messages Lookout wrote itself. It shows the
+  pipeline works; it has never seen a real phishing campaign.
 - **Pure-Python PQC** is not constant-time. Use liboqs or an HSM in production; see
   [docs/quantum_safe.md](docs/quantum_safe.md).
 - **Not deployed publicly.** It runs locally with Docker Compose. Hosting it needs a provider
@@ -219,7 +230,7 @@ unusual hour alone isn't enough to lock someone out, and the query four minutes 
 
 ## Docs
 
-[Architecture](docs/architecture.md) · [Database](docs/database.md) · [API](docs/api.md) ·
+[Spec coverage](docs/spec-coverage.md) · [Architecture](docs/architecture.md) · [Database](docs/database.md) · [API](docs/api.md) ·
 [ML](docs/ml.md) · [Security](docs/security.md) · [Quantum-safe](docs/quantum_safe.md) ·
 [GUIDE.md](GUIDE.md) (how it was built)
 
@@ -234,7 +245,12 @@ backend/lookout/
   scenarios.py     labelled incidents, including the spec's attack story
   baselines.py     per-identity online profiles
   context.py       short-window history + session containment
-  rules/           identity, privilege, data, messaging and transfer detectors
+  rules/           identity, session, privilege, data, messaging, content and transfer detectors
+  nlp.py           message-content model (TF-IDF + logistic regression, synthetic corpus)
+  message_risk.py  the spec's six-part message risk breakdown
+  pq_vault.py      post-quantum protected store; classical vs PQ table
+  routes_spec.py   the rest of the spec's routes (admin console, quarantine actions, ...)
+  runtime.py       Super Admin system configuration
   anomaly.py       IsolationForest + feature attributions
   scoring.py       fusion, bands, classification, graded response, policy floors
   policy.py        live, super-admin-editable policy
@@ -247,7 +263,7 @@ backend/lookout/
   audit.py         hash chain + signed checkpoints
   narrator.py      template or Gemini summaries
   evaluate.py      precision / recall against labels
-  ml/              session features, dataset, RandomForest + SHAP
+  ml/              session features, dataset, pandas cleaning, RandomForest + SHAP
   db/              SQLAlchemy schema and write-through persistence
 backend/datasets/  insider_sessions.csv (10,600 rows)
 ml/                generate, preprocess, train, evaluate, explain
