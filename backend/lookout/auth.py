@@ -1,8 +1,10 @@
 """Portal accounts and sessions.
 
-Two kinds of account: the twelve Meridian Bank employees (each mapped to their
-roster identity, so what they do in the portal is scored against their real
-baseline) and the SOC analyst who watches the console.
+Three kinds of account: the twelve Meridian Bank employees (each mapped to
+their roster identity, so what they do in the portal is scored against their
+real baseline -- the two managers among them also get a team view), the SOC
+analyst who watches the console, and the Super Admin who manages policy and
+accounts.
 
 Passwords are demo credentials, published in the README and on the sign-in
 page on purpose -- this is a demonstration bank. They are still stored as
@@ -41,6 +43,7 @@ DEMO_ACCOUNTS: tuple[tuple[str, str, str], ...] = (
     ("h.qureshi", "Sysadmin@Qureshi11", "employee"),
     ("n.pillai", "Admin@Pillai12", "employee"),
     ("soc.analyst", "SocWatch@2026", "soc"),
+    ("super.admin", "SuperAdmin@2026", "superadmin"),
 )
 
 
@@ -51,7 +54,7 @@ def _hash(password: str, salt: bytes) -> bytes:
 @dataclass
 class Account:
     username: str
-    kind: str  # "employee" | "soc"
+    kind: str  # "employee" | "soc" | "superadmin"
     salt: bytes
     digest: bytes
 
@@ -84,6 +87,8 @@ class AuthStore:
             salt = os.urandom(16)
             self._accounts[username] = Account(username, kind, salt, _hash(password, salt))
         self._sessions: dict[str, Session] = {}
+        #: username -> (who disabled it, why)
+        self.disabled: dict[str, tuple[str, str]] = {}
         self._lock = threading.Lock()
 
     def exists(self, username: str) -> bool:
@@ -109,6 +114,8 @@ class AuthStore:
         staff = BY_ACTOR.get(username)
         if staff:
             profile.update(role=staff.role.value, city=staff.city, device=staff.device)
+        elif kind == "superadmin":
+            profile.update(role="super_admin", city="Head office")
         else:
             profile.update(role="soc_analyst", city="Chennai SOC")
         session = Session(
@@ -134,3 +141,50 @@ class AuthStore:
     def close(self, token: str) -> None:
         with self._lock:
             self._sessions.pop(token, None)
+
+    # -- administration ---------------------------------------------------- #
+
+    def accounts(self) -> list[dict]:
+        active: dict[str, int] = {}
+        for sess in self._sessions.values():
+            if not sess.expired:
+                active[sess.username] = active.get(sess.username, 0) + 1
+        return [
+            {
+                "username": a.username,
+                "kind": a.kind,
+                "disabled": a.username in self.disabled,
+                "disabled_by": self.disabled.get(a.username, (None, None))[0],
+                "disabled_reason": self.disabled.get(a.username, (None, None))[1],
+                "active_sessions": active.get(a.username, 0),
+            }
+            for a in self._accounts.values()
+        ]
+
+    def sessions(self) -> list[Session]:
+        return [s for s in self._sessions.values() if not s.expired]
+
+    def is_disabled(self, username: str) -> bool:
+        return username in self.disabled
+
+    def disable(self, username: str, by: str, reason: str) -> int:
+        """Lock the account and sign out every session it holds."""
+        with self._lock:
+            self.disabled[username] = (by, reason)
+            doomed = [t for t, s in self._sessions.items() if s.username == username]
+            for t in doomed:
+                del self._sessions[t]
+        return len(doomed)
+
+    def enable(self, username: str) -> bool:
+        with self._lock:
+            return self.disabled.pop(username, None) is not None
+
+    def revoke(self, session_id: str) -> Session | None:
+        """End one portal session by its session ID (not its secret token)."""
+        with self._lock:
+            for token, sess in list(self._sessions.items()):
+                if sess.session_id == session_id:
+                    del self._sessions[token]
+                    return sess
+        return None

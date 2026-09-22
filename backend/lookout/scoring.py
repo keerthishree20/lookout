@@ -33,8 +33,9 @@ from .models import (
     ThreatClass,
 )
 
-#: Score thresholds. Ordered, non-overlapping, and deliberately conservative at
-#: the top: BLOCK_AND_ALERT pages a human, so it must be rare and right.
+#: Default score thresholds (see :mod:`lookout.policy` for the live ones).
+#: Ordered, non-overlapping, and deliberately conservative at the top:
+#: BLOCK_AND_ALERT pages a human, so it must be rare and right.
 BAND_THRESHOLDS: tuple[tuple[float, Band], ...] = (
     (85.0, Band.CRITICAL),
     (60.0, Band.HIGH),
@@ -79,7 +80,12 @@ def fuse(
 
 
 def band_for(total: float) -> Band:
-    for threshold, band in BAND_THRESHOLDS:
+    """Thresholds come from the live policy, so an admin change applies to
+    the next decision. :data:`BAND_THRESHOLDS` records the defaults."""
+    from .policy import POLICY
+
+    p = POLICY.current
+    for threshold, band in ((p.critical, Band.CRITICAL), (p.high, Band.HIGH), (p.medium, Band.MEDIUM)):
         if total >= threshold:
             return band
     return Band.LOW

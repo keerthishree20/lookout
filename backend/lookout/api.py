@@ -31,7 +31,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
@@ -42,13 +42,14 @@ from .auth import DEMO_ACCOUNTS, AuthStore, Session
 from .banking import Bank
 from .customers import customer_book, masked
 from .evaluate import run_evaluation
-from .generator import BY_ACTOR, CITIES, generate_history
+from .generator import BY_ACTOR, CITIES, ROSTER, generate_history
+from .incidents import ALERT_STATUSES, IncidentBook
 from .ml.model import ThreatClassifier, load_metrics
-from .models import Action, ActionTaken, Band, Decision, Event, MessagePayload
+from .models import PRIVILEGE_LEVEL, Action, ActionTaken, Band, Decision, Event, MessagePayload, Role
 from .narrator import Narrator
 from .pipeline import Engine
+from .policy import POLICY, PolicyError
 from .portal import (
-    HONEYPOT_THRESHOLD,
     MAX_EXPORT,
     ExportRecord,
     HoneypotLedger,
@@ -84,7 +85,15 @@ class AppState:
         self.book = customer_book()
         self.bank = Bank(self.book)
         self.ledger = HoneypotLedger()
+        self.incidents = IncidentBook()
+        self.access_requests: list[dict[str, Any]] = []
         self.engine.listeners.append(self._honeypot_trigger)
+        self.engine.listeners.append(self._raise_alert)
+
+    def _raise_alert(self, decision: Decision) -> None:
+        alert = self.incidents.on_decision(decision)
+        if alert is not None:
+            self.engine.broadcast_extra("alert", alert.as_dict())
 
     def _honeypot_trigger(self, decision: Decision) -> None:
         """Any high-risk decision about an employee moves them into the
@@ -105,6 +114,9 @@ class AppState:
         if decision.policy:
             reason += f" ({decision.policy})"
         if self.ledger.watch(actor, reason):
+            self.incidents.note_for_user(
+                actor, "honeypot", f"Moved into the honeypot: {reason}. From now on they see only fake data."
+            )
             self.engine.audit.append(
                 "honeypot.activated",
                 {"actor": actor, "reason": reason, "trigger_event": decision.event.event_id},
@@ -205,8 +217,22 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-#: Routes any visitor may call. Everything else under /api/ needs a SOC session.
-PUBLIC_PREFIXES = ("/api/health", "/api/auth/", "/api/portal/")
+#: Who may call what. First matching prefix wins; anything else under /api/
+#: is the SOC console (SOC analyst or Super Admin). Enforced once, here, so a
+#: new route cannot be left open by forgetting a decorator.
+PUBLIC = frozenset({"*"})
+ROUTE_ACCESS: tuple[tuple[str, frozenset[str]], ...] = (
+    ("/api/health", PUBLIC),
+    ("/api/auth/", PUBLIC),
+    ("/api/portal/", frozenset({"employee"})),
+    ("/api/team/", frozenset({"employee"})),  # and the handler checks for a manager
+    ("/api/admin/", frozenset({"superadmin"})),
+)
+CONSOLE = frozenset({"soc", "superadmin"})
+
+
+def allowed_kinds(path: str) -> frozenset[str]:
+    return next((kinds for prefix, kinds in ROUTE_ACCESS if path.startswith(prefix)), CONSOLE)
 
 
 def _token(request: Request) -> str | None:
@@ -218,22 +244,35 @@ def _token(request: Request) -> str | None:
 
 
 @app.middleware("http")
-async def soc_only(request: Request, call_next):
+async def role_gate(request: Request, call_next):
     """Registered before CORS, so CORS wraps it and a 401 still carries the
     headers the browser needs to read it."""
     path = request.url.path
-    if (
-        request.method == "OPTIONS"
-        or not path.startswith("/api/")
-        or path.startswith(PUBLIC_PREFIXES)
-    ):
+    if request.method == "OPTIONS" or not path.startswith("/api/"):
+        return await call_next(request)
+    kinds = allowed_kinds(path)
+    if kinds is PUBLIC:
         return await call_next(request)
     session = get_auth().get(_token(request))
     if session is None:
-        return JSONResponse({"detail": "sign in as a SOC analyst"}, status_code=401)
-    if session.kind != "soc":
-        return JSONResponse({"detail": "SOC access only"}, status_code=403)
+        return JSONResponse({"detail": "sign in required"}, status_code=401)
+    if session.kind not in kinds:
+        return JSONResponse({"detail": "your role cannot use this"}, status_code=403)
     return await call_next(request)
+
+
+def current_session(request: Request) -> Session:
+    session = get_auth().get(_token(request))
+    if session is None:
+        raise HTTPException(401, "sign in required")
+    return session
+
+
+def require_manager(request: Request) -> Session:
+    session = current_session(request)
+    if session.kind != "employee" or session.profile.get("role") != "manager":
+        raise HTTPException(403, "managers only")
+    return session
 
 
 def require_employee(request: Request) -> Session:
@@ -255,6 +294,10 @@ app.add_middleware(
     # Without this the browser hides the export's filename from the page.
     expose_headers=["Content-Disposition"],
 )
+
+
+def _wire(kind: str, item: Any) -> Any:
+    return _dump(item) if kind == "decision" else item
 
 
 def _dump(decision: Decision) -> dict[str, Any]:
@@ -291,6 +334,9 @@ def stats() -> dict[str, Any]:
         "honeypots_served": len(s.ledger.honeypots()) + len(s.ledger.transfer_decoys()),
         "transfer_decoys": len(s.ledger.transfer_decoys()),
         "in_honeypot": len(s.ledger.watchlist()),
+        "open_alerts": sum(a.status == "OPEN" for a in s.incidents.alerts.values()),
+        "open_incidents": sum(i.status in ("OPEN", "INVESTIGATING") for i in s.incidents.incidents.values()),
+        "active_sessions": len(get_auth().sessions()),
     }
 
 
@@ -334,11 +380,11 @@ async def stream(request: Request) -> EventSourceResponse:
                 if await request.is_disconnected():
                     break
                 try:
-                    d = await asyncio.wait_for(queue.get(), timeout=15)
+                    kind, item = await asyncio.wait_for(queue.get(), timeout=15)
                 except asyncio.TimeoutError:
                     yield {"event": "ping", "data": "{}"}
                     continue
-                yield {"event": "decision", "data": json.dumps(_dump(d))}
+                yield {"event": kind, "data": json.dumps(_wire(kind, item))}
         finally:
             engine.unsubscribe(queue)
 
@@ -431,6 +477,7 @@ def traffic(mode: str) -> dict[str, Any]:
 def reset() -> dict[str, Any]:
     s = get_state()
     subscribers = list(s.engine._subscribers)
+    POLICY.reset()  # a demo reset also restores the default security policy
     s.reset()
     # Keep open dashboards connected across a reset.
     s.engine._subscribers.extend(subscribers)
@@ -655,14 +702,19 @@ def login(body: LoginRequest) -> dict[str, Any]:
     username = body.username.strip()
     staff = BY_ACTOR.get(username)
     ok = a.verify(username, body.password)
+    if ok and a.is_disabled(username):
+        # An account the SOC or Super Admin switched off is refused outright --
+        # unlike a merely risky sign-in, which lands in the honeypot.
+        s.engine.audit.append("auth.disabled_account_attempt", {"username": username})
+        raise HTTPException(403, "account disabled -- contact the security team")
 
     if not ok:
         if staff is not None:
             s.engine.ingest(
                 _portal_event(staff, Action.LOGIN_FAILED, s, session_id="", resource="portal")
             )
-        elif a.kind_of(username) == "soc":
-            s.engine.audit.append("auth.soc_login_failed", {"username": username})
+        elif a.kind_of(username) in ("soc", "superadmin"):
+            s.engine.audit.append("auth.console_login_failed", {"username": username})
         raise HTTPException(401, "wrong username or password")
 
     session = a.open_session(username)
@@ -678,7 +730,7 @@ def login(body: LoginRequest) -> dict[str, Any]:
             username, "signed in", risk=decision.risk.total, band=decision.risk.band.value
         )
     else:
-        s.engine.audit.append("auth.soc_login", {"username": username})
+        s.engine.audit.append("auth.console_login", {"username": username, "kind": session.kind})
 
     return {"token": session.token, "kind": session.kind, "profile": session.profile}
 
@@ -1060,7 +1112,7 @@ def _receipt(txn) -> dict[str, Any]:
 def honeypots() -> dict[str, Any]:
     s = get_state()
     return {
-        "threshold": HONEYPOT_THRESHOLD,
+        "threshold": POLICY.current.honeypot_export_threshold,
         "watchlist": s.ledger.watchlist(),
         "watch": [w.as_dict() for w in s.ledger.watch_entries()],
         "served": [r.as_dict() for r in s.ledger.honeypots()],
@@ -1099,3 +1151,582 @@ def trace(q: str = Query(..., min_length=4)) -> dict[str, Any]:
     matched_by, rec = hit
     kind = "transfer" if isinstance(rec, TransferDecoy) else "export"
     return {"found": True, "query": q, "matched_by": matched_by, "kind": kind, "record": rec.as_dict()}
+
+
+# --------------------------------------------------------------------------- #
+# Access requests (employee asks, manager or Super Admin decides)
+# --------------------------------------------------------------------------- #
+
+REQUESTABLE = {
+    "core.customers:export": "Bulk customer export",
+    "core.transactions:read": "Transaction database (read)",
+    "reporting.payroll:read": "Payroll system (read)",
+    "admin.console": "Admin console",
+    "vault/api-signing": "API signing credentials",
+}
+
+
+def team_of(manager: str) -> list[str]:
+    """A manager's team: lower-privilege staff in the same branch."""
+    boss = BY_ACTOR[manager]
+    return [
+        s.actor
+        for s in ROSTER
+        if s.city == boss.city and PRIVILEGE_LEVEL[s.role] < PRIVILEGE_LEVEL[boss.role]
+    ]
+
+
+def approver_for(actor: str) -> str:
+    """The employee's branch manager, or the Super Admin where there is none."""
+    for s in ROSTER:
+        if s.role is Role.MANAGER and actor in team_of(s.actor):
+            return s.actor
+    return "super.admin"
+
+
+class AccessRequestBody(BaseModel):
+    resource: str
+    reason: str = Field(..., min_length=5, max_length=300)
+
+
+@app.get("/api/portal/access-requests")
+def my_access_requests(session: Session = Depends(require_employee)) -> dict[str, Any]:
+    s = get_state()
+    return {
+        "requestable": REQUESTABLE,
+        "requests": [r for r in s.access_requests if r["user"] == session.username][::-1],
+    }
+
+
+@app.post("/api/portal/access-requests")
+def request_access(body: AccessRequestBody, session: Session = Depends(require_employee)) -> dict[str, Any]:
+    if body.resource not in REQUESTABLE:
+        raise HTTPException(400, "unknown resource")
+    s = get_state()
+    req = {
+        "id": f"AR-{len(s.access_requests) + 1:04d}",
+        "user": session.username,
+        "role": session.profile.get("role"),
+        "resource": body.resource,
+        "resource_name": REQUESTABLE[body.resource],
+        "reason": body.reason,
+        "status": "PENDING",
+        "approver": approver_for(session.username),
+        "decided_by": None,
+        "note": "",
+        "created_at": now_utc().isoformat(),
+        "decided_at": None,
+    }
+    s.access_requests.append(req)
+    s.ledger.record_activity(session.username, "requested access", resource=body.resource)
+    s.engine.audit.append("access.requested", {k: req[k] for k in ("id", "user", "resource", "approver")})
+    return req
+
+
+class AccessDecision(BaseModel):
+    approve: bool
+    note: str = Field("", max_length=300)
+
+
+def _decide_request(req_id: str, body: AccessDecision, by: str) -> dict[str, Any]:
+    s = get_state()
+    req = next((r for r in s.access_requests if r["id"] == req_id), None)
+    if req is None:
+        raise HTTPException(404, "no such request")
+    if req["status"] != "PENDING":
+        raise HTTPException(409, "already decided")
+    if req["user"] == by:
+        raise HTTPException(403, "you cannot approve your own request")
+    req.update(
+        status="APPROVED" if body.approve else "DENIED",
+        decided_by=by,
+        note=body.note,
+        decided_at=now_utc().isoformat(),
+    )
+    s.engine.audit.append(
+        "access.decided", {"id": req_id, "user": req["user"], "resource": req["resource"], "status": req["status"], "by": by}
+    )
+    return req
+
+
+# --------------------------------------------------------------------------- #
+# Manager: team view
+# --------------------------------------------------------------------------- #
+
+
+@app.get("/api/team/overview")
+def team_overview(session: Session = Depends(require_manager)) -> dict[str, Any]:
+    """Risk summary for the manager's team. Deliberately says nothing about the
+    honeypot: a manager who knew could tip off the person being watched."""
+    s = get_state()
+    members = []
+    for actor in team_of(session.username):
+        mine = [d for d in s.engine.decisions if d.event.actor == actor]
+        flagged = [d for d in mine if d.action_taken is not ActionTaken.ALLOW]
+        members.append(
+            {
+                "user": actor,
+                "role": BY_ACTOR[actor].role.value,
+                "activities": len(mine),
+                "flagged": len(flagged),
+                "peak_risk": max((d.risk.total for d in mine), default=0.0),
+                "last_activity": mine[-1].event.ts.isoformat() if mine else None,
+                "risk_trend": [round(d.risk.total, 1) for d in mine[-20:]],
+            }
+        )
+    return {"manager": session.username, "branch": BY_ACTOR[session.username].city, "members": members}
+
+
+@app.get("/api/team/access-requests")
+def team_requests(session: Session = Depends(require_manager)) -> list[dict[str, Any]]:
+    return [r for r in get_state().access_requests if r["approver"] == session.username][::-1]
+
+
+@app.post("/api/team/access-requests/{req_id}/decide")
+def team_decide(req_id: str, body: AccessDecision, session: Session = Depends(require_manager)) -> dict[str, Any]:
+    req = next((r for r in get_state().access_requests if r["id"] == req_id), None)
+    if req is not None and req["approver"] != session.username:
+        raise HTTPException(403, "not your team's request")
+    return _decide_request(req_id, body, session.username)
+
+
+# --------------------------------------------------------------------------- #
+# Super Admin: policy and access requests without a manager
+# --------------------------------------------------------------------------- #
+
+
+@app.get("/api/admin/policies")
+def get_policies() -> dict[str, Any]:
+    return POLICY.current.as_dict()
+
+
+class PolicyUpdate(BaseModel):
+    medium: float | None = None
+    high: float | None = None
+    critical: float | None = None
+    honeypot_export_threshold: int | None = None
+    transfer_limits: dict[str, int] | None = None
+
+
+@app.put("/api/admin/policies")
+def put_policies(body: PolicyUpdate, request: Request) -> dict[str, Any]:
+    by = current_session(request).username
+    try:
+        before, after = POLICY.update(body.model_dump(exclude_none=True))
+    except PolicyError as e:
+        raise HTTPException(400, str(e)) from e
+    changed = {k: {"from": before[k], "to": after[k]} for k in after if before[k] != after[k]}
+    get_state().engine.audit.append("policy.changed", {"by": by, "changes": changed}, critical=True)
+    return {"policy": after, "changed": changed}
+
+
+@app.get("/api/admin/access-requests")
+def admin_requests() -> list[dict[str, Any]]:
+    return get_state().access_requests[::-1]
+
+
+@app.post("/api/admin/access-requests/{req_id}/decide")
+def admin_decide(req_id: str, body: AccessDecision, request: Request) -> dict[str, Any]:
+    return _decide_request(req_id, body, current_session(request).username)
+
+
+# --------------------------------------------------------------------------- #
+# Accounts and sessions (SOC or Super Admin)
+# --------------------------------------------------------------------------- #
+
+
+@app.get("/api/accounts")
+def accounts() -> list[dict[str, Any]]:
+    out = []
+    for a in get_auth().accounts():
+        staff = BY_ACTOR.get(a["username"])
+        a["role"] = staff.role.value if staff else a["kind"]
+        a["privilege_level"] = PRIVILEGE_LEVEL[staff.role] if staff else None
+        out.append(a)
+    return out
+
+
+class DisableBody(BaseModel):
+    reason: str = Field(..., min_length=3, max_length=200)
+
+
+@app.post("/api/accounts/{username}/disable")
+def disable_account(username: str, body: DisableBody, request: Request) -> dict[str, Any]:
+    by = current_session(request).username
+    a = get_auth()
+    if not a.exists(username):
+        raise HTTPException(404, "no such account")
+    if username == by:
+        raise HTTPException(400, "you cannot disable yourself")
+    signed_out = a.disable(username, by, body.reason)
+    s = get_state()
+    s.engine.audit.append("account.disabled", {"username": username, "by": by, "reason": body.reason}, critical=True)
+    s.incidents.note_for_user(username, "action", f"Account disabled by {by}: {body.reason}")
+    return {"disabled": username, "sessions_signed_out": signed_out}
+
+
+@app.post("/api/accounts/{username}/enable")
+def enable_account(username: str, request: Request) -> dict[str, Any]:
+    by = current_session(request).username
+    if not get_auth().enable(username):
+        raise HTTPException(404, "account is not disabled")
+    get_state().engine.audit.append("account.enabled", {"username": username, "by": by}, critical=True)
+    return {"enabled": username}
+
+
+@app.get("/api/sessions")
+def sessions() -> list[dict[str, Any]]:
+    return [
+        {
+            "session_id": x.session_id,
+            "username": x.username,
+            "kind": x.kind,
+            "role": x.profile.get("role"),
+            "expires": x.expires.isoformat(),
+        }
+        for x in get_auth().sessions()
+    ]
+
+
+@app.post("/api/sessions/{session_id}/revoke")
+def revoke_session(session_id: str, request: Request) -> dict[str, Any]:
+    by = current_session(request).username
+    ended = get_auth().revoke(session_id)
+    if ended is None:
+        raise HTTPException(404, "no such session")
+    s = get_state()
+    s.engine.ctx.revoke(session_id)  # any further use of it is now a signal too
+    s.engine.audit.append("session.revoked", {"session_id": session_id, "user": ended.username, "by": by}, critical=True)
+    s.incidents.note_for_user(ended.username, "action", f"Session {session_id} revoked by {by}.")
+    return {"revoked": session_id, "user": ended.username}
+
+
+# --------------------------------------------------------------------------- #
+# Alerts and incidents
+# --------------------------------------------------------------------------- #
+
+
+@app.get("/api/alerts")
+def alerts(status: str | None = None, limit: int = Query(100, ge=1, le=1000)) -> list[dict[str, Any]]:
+    items = list(get_state().incidents.alerts.values())[::-1]
+    if status:
+        items = [a for a in items if a.status == status.upper()]
+    return [a.as_dict() for a in items[:limit]]
+
+
+@app.get("/api/alerts/{alert_id}")
+def alert(alert_id: str) -> dict[str, Any]:
+    a = get_state().incidents.alerts.get(alert_id)
+    if a is None:
+        raise HTTPException(404, "no such alert")
+    return a.as_dict()
+
+
+class StatusBody(BaseModel):
+    status: str
+
+
+@app.post("/api/alerts/{alert_id}/status")
+def alert_status(alert_id: str, body: StatusBody) -> dict[str, Any]:
+    book = get_state().incidents
+    if alert_id not in book.alerts:
+        raise HTTPException(404, "no such alert")
+    try:
+        return book.set_alert_status(alert_id, body.status.upper()).as_dict()
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@app.get("/api/incidents")
+def incidents(status: str | None = None) -> list[dict[str, Any]]:
+    items = list(get_state().incidents.incidents.values())[::-1]
+    if status:
+        items = [i for i in items if i.status == status.upper()]
+    return [i.as_dict(full=False) for i in items]
+
+
+class IncidentCreate(BaseModel):
+    title: str = Field(..., min_length=3, max_length=120)
+    user: str
+    severity: str = "HIGH"
+    description: str = Field("", max_length=1000)
+
+
+@app.post("/api/incidents")
+def create_incident(body: IncidentCreate, request: Request) -> dict[str, Any]:
+    if body.severity.upper() not in ("LOW", "MEDIUM", "HIGH", "CRITICAL"):
+        raise HTTPException(400, "severity must be LOW, MEDIUM, HIGH or CRITICAL")
+    inc = get_state().incidents.create(
+        title=body.title, user=body.user, severity=body.severity.upper(),
+        description=body.description, by=current_session(request).username,
+    )
+    return inc.as_dict()
+
+
+def _incident(incident_id: str):
+    inc = get_state().incidents.incidents.get(incident_id)
+    if inc is None:
+        raise HTTPException(404, "no such incident")
+    return inc
+
+
+@app.get("/api/incidents/{incident_id}")
+def incident(incident_id: str) -> dict[str, Any]:
+    inc = _incident(incident_id)
+    d = inc.as_dict()
+    book = get_state().incidents
+    d["alerts"] = [book.alerts[a].as_dict() for a in inc.alert_ids]
+    d["honeypot"] = next(
+        (w.as_dict() for w in get_state().ledger.watch_entries() if w.actor == inc.user), None
+    )
+    return d
+
+
+class AssignBody(BaseModel):
+    analyst: str = Field(..., min_length=2, max_length=60)
+
+
+@app.post("/api/incidents/{incident_id}/assign")
+def assign_incident(incident_id: str, body: AssignBody, request: Request) -> dict[str, Any]:
+    _incident(incident_id)
+    return get_state().incidents.assign(incident_id, body.analyst, current_session(request).username).as_dict()
+
+
+class NoteBody(BaseModel):
+    text: str = Field(..., min_length=1, max_length=2000)
+
+
+@app.post("/api/incidents/{incident_id}/notes")
+def note_incident(incident_id: str, body: NoteBody, request: Request) -> dict[str, Any]:
+    _incident(incident_id)
+    return get_state().incidents.note(incident_id, body.text, current_session(request).username).as_dict()
+
+
+@app.post("/api/incidents/{incident_id}/status")
+def incident_status(incident_id: str, body: StatusBody, request: Request) -> dict[str, Any]:
+    _incident(incident_id)
+    try:
+        inc = get_state().incidents.set_status(incident_id, body.status.upper(), current_session(request).username)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    get_state().engine.audit.append("incident.status", {"id": incident_id, "status": inc.status})
+    return inc.as_dict()
+
+
+class IncidentAction(BaseModel):
+    action: str  # revoke_sessions | disable_account | enable_account
+    reason: str = "incident response"
+
+
+@app.post("/api/incidents/{incident_id}/actions")
+def incident_action(incident_id: str, body: IncidentAction, request: Request) -> dict[str, Any]:
+    inc = _incident(incident_id)
+    by = current_session(request).username
+    s, a = get_state(), get_auth()
+    if body.action == "revoke_sessions":
+        ended = [x for x in a.sessions() if x.username == inc.user]
+        for x in ended:
+            a.revoke(x.session_id)
+            s.engine.ctx.revoke(x.session_id)
+        detail = f"{len(ended)} session(s) ended"
+    elif body.action == "disable_account":
+        detail = f"account disabled, {a.disable(inc.user, by, body.reason)} session(s) ended"
+    elif body.action == "enable_account":
+        a.enable(inc.user)
+        detail = "account re-enabled"
+    else:
+        raise HTTPException(400, "action must be revoke_sessions, disable_account or enable_account")
+    s.engine.audit.append("incident.action", {"id": incident_id, "action": body.action, "by": by}, critical=True)
+    return s.incidents.record_action(incident_id, body.action, by, detail).as_dict()
+
+
+# --------------------------------------------------------------------------- #
+# Risk-based access control
+# --------------------------------------------------------------------------- #
+
+#: Minimum privilege level for each protected resource (role-based part).
+RESOURCE_MIN_LEVEL = {
+    "customer_database": 2,
+    "transaction_database": 2,
+    "payroll_system": 3,
+    "financial_records": 3,
+    "authentication_server": 5,
+    "admin_console": 5,
+}
+
+
+class AccessCheck(BaseModel):
+    user: str
+    resource: str
+
+
+@app.post("/api/access/check")
+def access_check(body: AccessCheck) -> dict[str, Any]:
+    """Role + behaviour + risk, not RBAC alone.
+
+    Role decides whether the resource is in scope at all. The person's current
+    risk (their latest score, and whether they are in the honeypot) then
+    decides whether in-scope access is normal, needs MFA, or is refused.
+    """
+    staff = BY_ACTOR.get(body.user)
+    if staff is None:
+        raise HTTPException(404, "unknown user")
+    if body.resource not in RESOURCE_MIN_LEVEL:
+        raise HTTPException(400, f"resource must be one of {sorted(RESOURCE_MIN_LEVEL)}")
+    s = get_state()
+    level = PRIVILEGE_LEVEL[staff.role]
+    recent = [d for d in s.engine.decisions if d.event.actor == body.user][-10:]
+    risk = max((d.risk.total for d in recent), default=0.0)
+    band = max((d.risk.band for d in recent), key=lambda b: list(Band).index(b), default=Band.LOW)
+    approved = any(
+        r["user"] == body.user and r["status"] == "APPROVED" and body.resource.split("_")[0] in r["resource"]
+        for r in s.access_requests
+    )
+    in_scope = level >= RESOURCE_MIN_LEVEL[body.resource] or approved
+    privileged = level >= 4
+
+    if not in_scope:
+        decision, why = "DENIED", "role is below the resource's minimum privilege and no approved request exists"
+    elif band is Band.CRITICAL or (privileged and band is Band.HIGH):
+        decision, why = "BLOCK_AND_REVOKE", f"{band.value} risk on a {'privileged ' if privileged else ''}account"
+    elif band is Band.HIGH:
+        decision, why = "RESTRICTED", "high current risk: read-only, no export"
+    elif band is Band.MEDIUM or (privileged and body.resource in ("admin_console", "authentication_server")):
+        decision, why = "MFA_REQUIRED", "medium risk, or privileged access to a critical system"
+    else:
+        decision, why = "ALLOWED", "in scope and low risk"
+    monitoring = "enhanced" if privileged or decision != "ALLOWED" else "standard"
+    return {
+        "user": body.user,
+        "role": staff.role.value,
+        "resource": body.resource,
+        "decision": decision,
+        "reason": why,
+        "current_risk": risk,
+        "risk_band": band.value,
+        "monitoring": monitoring,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Dashboard aggregates
+# --------------------------------------------------------------------------- #
+
+
+@app.get("/api/dashboard/statistics")
+def dashboard_statistics() -> dict[str, Any]:
+    s = get_state()
+    decisions = s.engine.decisions
+    peak: dict[str, float] = {}
+    for d in decisions:
+        peak[d.event.actor] = max(peak.get(d.event.actor, 0.0), d.risk.total)
+    alerts_ = list(s.incidents.alerts.values())
+    return {
+        "total_users": len(ROSTER),
+        "active_sessions": len(get_auth().sessions()),
+        "high_risk_users": sum(v >= POLICY.current.high for v in peak.values()),
+        "critical_alerts": sum(a.severity == "CRITICAL" and a.status == "OPEN" for a in alerts_),
+        "blocked_messages": sum(
+            d.event.action is Action.SEND_MESSAGE and d.action_taken is ActionTaken.BLOCK_AND_ALERT for d in decisions
+        ),
+        "quarantined_messages": len(s.engine.quarantine),
+        "privileged_accounts": sum(PRIVILEGE_LEVEL[x.role] >= 4 for x in ROSTER),
+        "threat_distribution": {
+            c: sum(d.threat_class.value == c for d in decisions)
+            for c in ("negligent", "malicious", "compromised", "privilege_abuse")
+        },
+        "score_distribution": {
+            band.value: sum(d.risk.band is band for d in decisions) for band in Band
+        },
+        "alerts_by_type": _count(a.alert_type for a in alerts_),
+    }
+
+
+@app.get("/api/dashboard/risk-trends")
+def risk_trends(buckets: int = Query(24, ge=4, le=96)) -> dict[str, Any]:
+    """Decisions bucketed over simulated time: volume, flagged, mean and peak risk."""
+    ds = get_state().engine.decisions
+    if not ds:
+        return {"buckets": []}
+    t0, t1 = ds[0].event.ts, ds[-1].event.ts
+    span = max((t1 - t0).total_seconds(), 1.0) / buckets
+    rows = [{"start": (t0 + timedelta(seconds=span * i)).isoformat(), "count": 0, "flagged": 0, "sum": 0.0, "peak": 0.0} for i in range(buckets)]
+    for d in ds:
+        i = min(buckets - 1, int((d.event.ts - t0).total_seconds() // span))
+        r = rows[i]
+        r["count"] += 1
+        r["sum"] += d.risk.total
+        r["peak"] = max(r["peak"], d.risk.total)
+        r["flagged"] += d.action_taken is not ActionTaken.ALLOW
+    for r in rows:
+        r["mean"] = round(r.pop("sum") / r["count"], 1) if r["count"] else 0.0
+    return {"buckets": rows}
+
+
+@app.get("/api/users/{actor}/risk")
+def user_risk(actor: str) -> dict[str, Any]:
+    """Risk profile: trend, classification history, devices, places, alerts."""
+    if actor not in BY_ACTOR:
+        raise HTTPException(404, "unknown identity")
+    s = get_state()
+    mine = [d for d in s.engine.decisions if d.event.actor == actor]
+    return {
+        "user": actor,
+        "role": BY_ACTOR[actor].role.value,
+        "current_risk": mine[-1].risk.total if mine else 0.0,
+        "peak_risk": max((d.risk.total for d in mine), default=0.0),
+        "classification": next((d.threat_class.value for d in reversed(mine) if d.threat_class.value != "benign"), "benign"),
+        "trend": [{"ts": d.event.ts.isoformat(), "risk": d.risk.total, "action": d.event.action.value} for d in mine[-60:]],
+        "logins": [
+            {"ts": d.event.ts.isoformat(), "city": d.event.geo.city, "device": d.event.device_id, "ip": d.event.source_ip,
+             "success": d.event.success, "risk": d.risk.total}
+            for d in mine if d.event.action in (Action.LOGIN, Action.LOGIN_FAILED)
+        ][-20:],
+        "devices": _count(d.event.device_id for d in mine),
+        "locations": _count(d.event.geo.city for d in mine),
+        "resources": _count(d.event.resource for d in mine if d.event.resource),
+        "messages": sum(d.event.action is Action.SEND_MESSAGE for d in mine),
+        "alerts": [a.as_dict() for a in s.incidents.alerts.values() if a.user == actor],
+    }
+
+
+@app.get("/api/users/{actor}/activity")
+def user_activity(actor: str, limit: int = Query(50, ge=1, le=500)) -> list[dict[str, Any]]:
+    if actor not in BY_ACTOR:
+        raise HTTPException(404, "unknown identity")
+    mine = [d for d in get_state().engine.decisions if d.event.actor == actor][-limit:]
+    return [_dump(d) for d in reversed(mine)]
+
+
+def _count(values) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for v in values:
+        out[v] = out.get(v, 0) + 1
+    return dict(sorted(out.items(), key=lambda kv: kv[1], reverse=True))
+
+
+# --------------------------------------------------------------------------- #
+# WebSocket live feed (same payloads as the SSE stream)
+# --------------------------------------------------------------------------- #
+
+
+@app.websocket("/api/ws")
+async def ws_feed(ws: WebSocket) -> None:
+    """Decisions and alerts pushed as JSON: {"type": "decision"|"alert", "data": ...}.
+    The console route guard does not see WebSocket upgrades, so this checks
+    the token itself."""
+    session = get_auth().get(ws.query_params.get("token"))
+    if session is None or session.kind not in CONSOLE:
+        await ws.close(code=4401)
+        return
+    await ws.accept()
+    engine = get_state().engine
+    queue = engine.subscribe()
+    try:
+        while True:
+            kind, item = await queue.get()
+            await ws.send_json({"type": kind, "data": _wire(kind, item)})
+    except WebSocketDisconnect:
+        pass
+    finally:
+        engine.unsubscribe(queue)

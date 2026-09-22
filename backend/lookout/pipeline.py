@@ -273,11 +273,18 @@ class Engine:
             self._subscribers.remove(q)
 
     def _broadcast(self, decision: Decision) -> None:
-        """Push to any connected dashboard. Never blocks ingestion: a slow
+        self._push(("decision", decision))
+
+    def broadcast_extra(self, kind: str, payload: dict[str, Any]) -> None:
+        """Push something other than a decision (an alert, say) to the feed."""
+        self._push((kind, payload))
+
+    def _push(self, item: tuple[str, Any]) -> None:
+        """Queue for every connected dashboard. Never blocks ingestion: a slow
         browser drops frames rather than back-pressuring the pipeline."""
         for q in list(self._subscribers):
             try:
-                q.put_nowait(decision)
+                q.put_nowait(item)
             except asyncio.QueueFull:
                 pass
 

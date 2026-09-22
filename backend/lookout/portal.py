@@ -31,7 +31,9 @@ from fpdf import FPDF
 
 from .customers import Customer, decoy_of
 
-#: Exports at or above this many records always get the decoy.
+#: Default export size that always gets the decoy. The live value is
+#: ``POLICY.current.honeypot_export_threshold`` and can be changed by the
+#: Super Admin.
 HONEYPOT_THRESHOLD = int(os.getenv("LOOKOUT_HONEYPOT_THRESHOLD", "100"))
 
 #: Most records one export may request.
@@ -228,10 +230,13 @@ def new_doc_ref() -> str:
 def is_suspicious(requested: int, action_taken: str, caught: bool = False) -> tuple[bool, str]:
     if caught:
         return True, "employee already served a decoy; on the honeypot watchlist until the SOC clears them"
-    if requested >= HONEYPOT_THRESHOLD:
+    from .policy import POLICY
+
+    threshold = POLICY.current.honeypot_export_threshold
+    if requested >= threshold:
         return True, (
             f"bulk export of {requested} customer records "
-            f"(policy threshold {HONEYPOT_THRESHOLD})"
+            f"(policy threshold {threshold})"
         )
     if action_taken != "allow":
         return True, f"risk engine returned {action_taken.replace('_', ' ')} for this export"

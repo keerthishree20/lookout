@@ -65,9 +65,9 @@ def test_every_demo_account_can_sign_in(raw):
         assert r.json()["kind"] == kind
 
 
-def test_twelve_employees_and_one_soc_analyst():
+def test_twelve_employees_one_soc_analyst_one_super_admin():
     kinds = [k for _, _, k in DEMO_ACCOUNTS]
-    assert kinds.count("employee") == 12 and kinds.count("soc") == 1
+    assert kinds.count("employee") == 12 and kinds.count("soc") == 1 and kinds.count("superadmin") == 1
 
 
 def test_wrong_password_rejected_and_scored(raw, soc):
@@ -90,7 +90,7 @@ def test_password_guessing_trips_the_burst_detector(raw, soc):
 
 def test_demo_accounts_listed_for_sign_in_page(raw):
     accounts = raw.get("/api/auth/demo-accounts").json()
-    assert len(accounts) == 13
+    assert len(accounts) == 14
     assert {"username", "password", "kind", "role"} <= set(accounts[0])
 
 
