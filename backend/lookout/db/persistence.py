@@ -112,8 +112,13 @@ class Persistence:
         if self.url.startswith("sqlite"):
             kwargs["connect_args"] = {"check_same_thread": False}
         else:
-            # Fail fast on an unreachable server rather than hang start-up.
-            kwargs["connect_args"] = {"connect_timeout": 5}
+            # Long enough for a hosted database to wake from idle (Neon and
+            # Supabase suspend a free compute), short enough that an
+            # unreachable server doesn't hang start-up.
+            import os
+
+            timeout = int(os.getenv("LOOKOUT_DB_CONNECT_TIMEOUT", "10"))
+            kwargs["connect_args"] = {"connect_timeout": timeout}
         self.engine = create_engine(self.url, **kwargs)
         self.Session = sessionmaker(self.engine, expire_on_commit=False)
         self.run_id = str(uuid.uuid4())

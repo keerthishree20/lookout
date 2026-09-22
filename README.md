@@ -52,6 +52,26 @@ database expires after 30 days; Lookout then keeps running in memory. The demo a
 on the sign-in page, so anyone with the URL can sign in. That's fine for a demo, and the Super
 Admin can hide them under Settings → System configuration.
 
+#### Keeping the database past 30 days
+
+Render's free PostgreSQL expires after 30 days. To keep the history, point the service at a free
+database elsewhere (Neon and Supabase don't expire):
+
+1. Create a free project at https://neon.com (or https://supabase.com) and copy its PostgreSQL
+   connection string. It looks like
+   `postgresql://user:password@ep-something.aws.neon.tech/neondb?sslmode=require`.
+2. In Render: the **lookout** service → **Environment** → edit **`DATABASE_URL`** → paste it → **Save**.
+   The service restarts and creates its tables on the new database.
+3. Check it worked: sign in as the Super Admin and open **Settings**, or call `/api/db/status`.
+   It should say `enabled: true` and that the stored audit chain verifies.
+
+Lookout accepts `postgres://` or `postgresql://` URLs with their query parameters, waits up to
+`LOOKOUT_DB_CONNECT_TIMEOUT` seconds (default 10) for a sleeping database to wake, and falls back
+to running in memory if the database can't be reached at all.
+
+If you later press **Sync** on the Blueprint page, Render restores `DATABASE_URL` to its own
+database. Re-paste the external one, or delete the `databases:` block from `render.yaml` first.
+
 ### Without Docker
 
 ```bash
