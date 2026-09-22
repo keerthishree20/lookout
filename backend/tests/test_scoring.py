@@ -145,3 +145,18 @@ def test_origin_lock_only_for_critical_front_door_attacks():
     assert should_lock_origin(ActionTaken.BLOCK_AND_ALERT, _ev("r.krishnan", Action.LOGIN_FAILED))
     assert not should_lock_origin(ActionTaken.BLOCK, _ev("r.krishnan", Action.LOGIN_FAILED))
     assert not should_lock_origin(ActionTaken.BLOCK_AND_ALERT, _ev("r.krishnan", Action.DB_QUERY))
+
+
+def test_transfer_from_role_without_mandate_is_blocked_by_policy():
+    transfer = _ev("t.banerjee", Action.FUND_TRANSFER, amount=5_000.0)
+    action, policy = decide(_risk(20), transfer)
+    assert action is ActionTaken.BLOCK
+    assert policy and "no mandate" in policy
+    teller = _ev("r.krishnan", Action.FUND_TRANSFER, amount=5_000.0)
+    assert decide(_risk(20), teller) == (ActionTaken.ALLOW, None)
+
+
+def test_band_uses_the_rounded_score_the_analyst_sees():
+    """Regression: 59.97 was shown as 60.0 beside a medium-risk response."""
+    risk = fuse(_ev("r.krishnan"), [_sig(59.96)], NO_MODEL)
+    assert risk.total == 60.0 and risk.band is Band.HIGH

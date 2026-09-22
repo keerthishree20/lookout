@@ -264,14 +264,15 @@ def test_trace_by_doc_ref_and_by_leaked_account(raw, soc):
     r = export(raw, h, count=100)
     ref = footer_ref(r.content)
     by_ref = raw.get(f"/api/honeypots/trace?q={ref}", headers=soc).json()
-    assert by_ref["found"] and by_ref["export"]["actor"] == "m.d'souza"
+    assert by_ref["found"] and by_ref["record"]["actor"] == "m.d'souza"
+    assert by_ref["kind"] == "export"
     assert by_ref["matched_by"] == "doc_ref"
 
     leaked = raw.get("/api/honeypots", headers=soc).json()["served"][0]["canaries"][42]
     spaced = f"{leaked[:4]} {leaked[4:8]} {leaked[8:]}"  # as it might appear in a dump
     by_acct = raw.get(f"/api/honeypots/trace?q={spaced}", headers=soc).json()
     assert by_acct["found"] and by_acct["matched_by"] == "canary_account"
-    assert by_acct["export"]["actor"] == "m.d'souza"
+    assert by_acct["record"]["actor"] == "m.d'souza"
 
 
 def test_trace_miss(raw, soc):

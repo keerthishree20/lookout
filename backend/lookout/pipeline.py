@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from datetime import datetime, timedelta
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from .anomaly import BehaviourModel, featurise, train_from_history
 from .audit import AuditLog
@@ -57,6 +57,9 @@ class Engine:
         self.history_size = 0
         self._lock = threading.Lock()
         self._subscribers: list[asyncio.Queue] = []
+        #: Called with every decision after it is recorded. The API uses this
+        #: to move high-risk employees into the honeypot.
+        self.listeners: list[Callable[[Decision], None]] = []
 
     # -- setup ------------------------------------------------------------ #
 
@@ -125,6 +128,8 @@ class Engine:
             self.decisions.append(decision)
 
         self._broadcast(decision)
+        for listener in self.listeners:
+            listener(decision)
         return decision
 
     def ingest_many(self, events: Iterable[Event]) -> list[Decision]:

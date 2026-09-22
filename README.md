@@ -9,7 +9,7 @@ auth, quarantine, block, block and page the SOC), and writes every decision to a
 with **ML-DSA-65 (NIST FIPS 204)**. Credentials are sealed with **ML-KEM-768 (FIPS 203)**.
 
 ```
-event ─► baseline lookup ─► 16 detectors + IsolationForest ─► fused, explained score
+event ─► baseline lookup ─► 17 detectors + IsolationForest ─► fused, explained score
       ─► graded response + session containment ─► hash-chained audit, ML-DSA signed ─► live console
 ```
 
@@ -34,7 +34,7 @@ event ─► baseline lookup ─► 16 detectors + IsolationForest ─► fused,
 | Page | Who | What it does |
 |---|---|---|
 | `/login` | everyone | sign in; lists the demo accounts below |
-| `/employee` | the 12 employees | browse the customer book (PII masked) and export customers as a PDF |
+| `/employee` | the 12 employees | browse the customer book (PII masked), export customers as a PDF, make fund transfers |
 | `/soc` | the SOC analyst | the console: live decisions, honeypot alerts, gateway, audit, evaluation |
 
 Demo credentials (a simulated bank; passwords are stored as salted PBKDF2 hashes):
@@ -73,6 +73,33 @@ an employee has been given a decoy, they only ever get decoys, even after signin
 the SOC clears them. That way they never hold a genuine file to compare against. Serving a decoy,
 and clearing someone, are both written to the signed audit log.
 
+### The honeypot transfer page
+
+When an employee does anything **high-risk**, they are silently moved into the honeypot. That means
+a fund transfer scored high (over their role's limit, far above their usual amounts, to a new outside
+account, out of hours), a role with no transfer mandate trying to move money, a decoy PDF export, or
+any other high or critical decision about them, including one from a console scenario.
+
+From then on the **same pages** run on fake data. There is no second "decoy" page, because a
+different page would be the tell.
+
+- **Transfers** complete as usual: the same OTP step for medium risk, then "Transfer successful",
+  with a reference number, UTR and a debited balance. The balance stays debited on refresh and
+  the transfer appears in their history. **No real money moves.** A per-employee shadow ledger
+  holds the fake balances, and every other employee still sees the real ones.
+- **Exports** are decoy PDFs, as above.
+- **Everything they do** (accounts looked up, transfers, OTP attempts, exports, sign-ins) is
+  recorded on a timeline in the SOC **Honeypot** tab. Each fake transfer is logged with
+  `real_funds_moved: false` in the signed audit log.
+- Fake transaction references and UTRs are traceable. If the insider passes one to an
+  accomplice, the SOC can paste it into **Trace** to name them.
+- Signing out doesn't escape it. The SOC's **Clear** button ends it: the fake transfers disappear
+  from the employee's view, and the clearance is audited.
+
+To demo: sign in as `a.fernandes`, open **Fund transfer**, send ₹10,000 to "Another Meridian customer"
+(real), then ₹4,80,000 to "Outside account (ICICI)" (fake). In a second tab, sign in as
+`soc.analyst` and open **Honeypot**.
+
 ## Run it
 
 ```bash
@@ -92,12 +119,12 @@ No API key, database or compiler is needed. The post-quantum libraries are pure 
 Optional settings are listed in `backend/.env.example`; export them before starting uvicorn.
 If the API runs somewhere other than `localhost:8077`, set `NEXT_PUBLIC_API_URL` for the frontend.
 
-Tests: `cd backend && python -m pytest` (173 tests). Detection report: `python -m lookout.evaluate`.
+Tests: `cd backend && python -m pytest` (205 tests). Detection report: `python -m lookout.evaluate`.
 
 ## The demo
 
 On start-up the API replays a month of synthetic activity for 12 staff at a fictional bank to build
-baselines and train the model, then keeps a trickle of ordinary work flowing. Six scenarios can be
+baselines and train the model, then keeps a trickle of ordinary work flowing. Seven scenarios can be
 injected from the console:
 
 | Scenario | What happens | Lookout's response |
@@ -107,6 +134,7 @@ injected from the console:
 | Bulk phishing | 50,000 customers get an SMS with `meridian-bank.secure-verify.top/re-kyc` | blocked and paged; lookalike domain named in the explanation |
 | After-hours exfiltration | 02:14 login, 412,000-row read, 2.9 GB written to a share | read blocked before data leaves |
 | Credential stuffing | 7 failures from Lagos, a success, 9 vault reads | burst detected, origin locked, every vault read refused |
+| Transfer fraud | Teller sends ₹1.9L, ₹4.8L and ₹4.95L from customers to new outside accounts at 21:40 | first transfer stepped up, the rest blocked and paged; *malicious* |
 | Negligent insider | Teller emails 900 customers a *genuine* statement link | quarantined for review, classed *negligent*, never paged |
 
 The **Message gateway** tab takes any text. Links are extracted from the body, and a customer-facing
@@ -124,11 +152,13 @@ verifies.
 | | |
 |---|---|
 | precision | 1.000 |
-| recall | 0.967 (29 of 30 incident events) |
-| false-positive rate | 0 of 940 held-out benign events |
-| threat classification | 29 of 29 detected incidents named correctly |
+| recall | 0.970 (32 of 33 incident events) |
+| false-positive rate | 0 of 869 held-out benign events |
+| threat classification | 32 of 32 detected incidents named correctly |
 
-Across five other random seeds the worst case was 1 false positive in 896 benign events.
+Across five other random seeds the worst case was 2 false positives in 931 benign events: a ₹4.4 lakh transfer
+by an officer to an outside payee they had not paid before, and a domain admin's bulk message. Both got a step-up
+(an extra verification), not a block.
 
 **These are numbers on synthetic data from Lookout's own generator.** They show the detectors are
 consistent and don't fire on ordinary work, including legitimate manager campaigns, weekend on-call

@@ -67,6 +67,9 @@ class Baseline:
         self.resources: set[str] = set()
         self.records_per_query = RunningStat()
         self.recipients_per_message = RunningStat()
+        self.transfer_amount = RunningStat()
+        #: Destination accounts this person has paid before.
+        self.beneficiaries: set[str] = set()
         self.last_login_ts: datetime | None = None
         self.last_login_geo: tuple[float, float] | None = None
         self.last_login_city: str = ""
@@ -100,6 +103,10 @@ class Baseline:
             self.records_per_query.update(float(event.meta.get("record_count", 0)))
         if event.action is Action.SEND_MESSAGE and event.message:
             self.recipients_per_message.update(float(event.message.recipient_count))
+        if event.action is Action.FUND_TRANSFER:
+            self.transfer_amount.update(float(event.meta.get("amount", 0)))
+            if event.meta.get("to_account"):
+                self.beneficiaries.add(str(event.meta["to_account"]))
 
     # -- queries used by rules -------------------------------------------- #
 
@@ -135,6 +142,7 @@ class Baseline:
             "devices": sorted(self.devices),
             "records_per_query": self.records_per_query.as_dict(),
             "recipients_per_message": self.recipients_per_message.as_dict(),
+            "transfer_amount": self.transfer_amount.as_dict(),
             "last_login": {
                 "ts": self.last_login_ts.isoformat() if self.last_login_ts else None,
                 "city": self.last_login_city,

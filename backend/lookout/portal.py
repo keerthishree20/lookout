@@ -78,17 +78,103 @@ class ExportRecord:
         return d
 
 
-class ExportLedger:
+@dataclass
+class TransferDecoy:
+    """A transfer that the employee believes succeeded and that never happened."""
+
+    reference: str
+    utr: str
+    actor: str
+    role: str
+    ts: datetime
+    from_account: str
+    from_name: str
+    to_account: str
+    to_name: str
+    to_ifsc: str
+    external: bool
+    amount: float
+    reason: str
+    risk_total: float
+    action_taken: str
+    audit_seq: int | None
+    #: What the employee was shown afterwards -- the fake remaining balance.
+    shown_balance_after: float
+    #: Always False. Stored explicitly because it is the point of the record.
+    real_funds_moved: bool = False
+
+    def as_dict(self) -> dict[str, Any]:
+        d = {k: getattr(self, k) for k in self.__dataclass_fields__}
+        d["ts"] = self.ts.isoformat()
+        return d
+
+
+@dataclass
+class WatchEntry:
+    actor: str
+    since: datetime
+    reason: str
+    #: Everything the employee did while being shown the fake world.
+    activity: list[dict[str, Any]] = field(default_factory=list)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "actor": self.actor,
+            "since": self.since.isoformat(),
+            "reason": self.reason,
+            "activity": self.activity[-50:][::-1],
+        }
+
+
+class HoneypotLedger:
+    """Every decoy served -- PDF exports and fund transfers -- plus the
+    watchlist of employees who now see only the fake world.
+
+    One watchlist for both, on purpose: an employee caught exporting data must
+    not then be able to make a real transfer, and vice versa. Whatever tripped
+    the wire, from then on they are in the honeypot everywhere.
+    """
+
     def __init__(self) -> None:
         self.records: list[ExportRecord] = []
+        self.transfers: list[TransferDecoy] = []
         self._by_ref: dict[str, ExportRecord] = {}
         self._by_canary: dict[str, ExportRecord] = {}
-        #: Employees who have been served a decoy. Once fed one, they only ever
-        #: get decoys -- across sign-outs and new sessions -- until the SOC
-        #: clears them: a genuine file next to a fake one is exactly the
-        #: comparison that would expose the trap.
-        self._caught: set[str] = set()
+        self._by_txn: dict[str, TransferDecoy] = {}
+        self._watch: dict[str, WatchEntry] = {}
         self._lock = threading.Lock()
+
+    # -- watchlist ---------------------------------------------------------- #
+
+    def watch(self, actor: str, reason: str) -> bool:
+        """Put someone in the honeypot. Returns True if they were not already."""
+        with self._lock:
+            if actor in self._watch:
+                return False
+            self._watch[actor] = WatchEntry(actor, now_utc(), reason)
+            return True
+
+    def caught(self, actor: str) -> bool:
+        return actor in self._watch
+
+    def watchlist(self) -> list[str]:
+        return sorted(self._watch)
+
+    def watch_entries(self) -> list[WatchEntry]:
+        return sorted(self._watch.values(), key=lambda w: w.since, reverse=True)
+
+    def record_activity(self, actor: str, what: str, **detail: Any) -> None:
+        """Log what a caught employee does. No-op for everyone else."""
+        with self._lock:
+            entry = self._watch.get(actor)
+            if entry is not None:
+                entry.activity.append({"ts": now_utc().isoformat(), "what": what, **detail})
+
+    def clear(self, actor: str) -> bool:
+        with self._lock:
+            return self._watch.pop(actor, None) is not None
+
+    # -- exports ------------------------------------------------------------ #
 
     def add(self, rec: ExportRecord) -> None:
         with self._lock:
@@ -96,34 +182,41 @@ class ExportLedger:
             self._by_ref[rec.doc_ref] = rec
             for acct in rec.canaries:
                 self._by_canary[acct] = rec
-            if rec.decoy:
-                self._caught.add(rec.actor)
-
-    def caught(self, actor: str) -> bool:
-        return actor in self._caught
-
-    def watchlist(self) -> list[str]:
-        return sorted(self._caught)
-
-    def clear(self, actor: str) -> bool:
-        with self._lock:
-            if actor in self._caught:
-                self._caught.discard(actor)
-                return True
-            return False
+        if rec.decoy:
+            self.watch(rec.actor, f"served a decoy export: {rec.reason}")
 
     def honeypots(self) -> list[ExportRecord]:
         return [r for r in reversed(self.records) if r.decoy]
 
-    def trace(self, needle: str) -> tuple[str, ExportRecord] | None:
-        """Find the export behind a document reference or a leaked account number."""
+    # -- transfers ---------------------------------------------------------- #
+
+    def add_transfer(self, rec: TransferDecoy) -> None:
+        with self._lock:
+            self.transfers.append(rec)
+            self._by_txn[rec.reference] = rec
+            self._by_txn[rec.utr] = rec
+
+    def transfer_decoys(self) -> list[TransferDecoy]:
+        return list(reversed(self.transfers))
+
+    # -- tracing ------------------------------------------------------------ #
+
+    def trace(self, needle: str) -> tuple[str, ExportRecord | TransferDecoy] | None:
+        """Find the decoy behind a PDF reference, a leaked account number, or a
+        transaction reference / UTR the insider quoted to an accomplice."""
         key = needle.strip().upper().replace(" ", "")
         if key in self._by_ref:
             return "doc_ref", self._by_ref[key]
+        if key in self._by_txn:
+            return "transaction_ref", self._by_txn[key]
         digits = "".join(ch for ch in needle if ch.isdigit())
         if digits in self._by_canary:
             return "canary_account", self._by_canary[digits]
         return None
+
+
+#: Kept so earlier imports keep working.
+ExportLedger = HoneypotLedger
 
 
 def new_doc_ref() -> str:

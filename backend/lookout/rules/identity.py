@@ -51,7 +51,9 @@ def impossible_travel(
     return [
         Signal(
             name="impossible_travel",
-            points=40.0,
+            # Physics, not statistics: two sessions no one person could hold.
+            # Enough alone for a step-up; any corroboration makes it high.
+            points=50.0,
             explanation=(
                 f"Login from {event.geo.city}, {event.geo.country} is "
                 f"{km:,.0f} km from the previous login in {baseline.last_login_city} "

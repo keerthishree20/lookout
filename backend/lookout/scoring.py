@@ -23,6 +23,7 @@ from collections import Counter
 from .anomaly import AnomalyVerdict
 from .context import SEVERITY
 from .models import (
+    TRANSFER_LIMITS,
     Action,
     ActionTaken,
     Band,
@@ -64,8 +65,11 @@ def fuse(
             )
         )
 
+    # Band the number the analyst will actually see. Banding the unrounded
+    # value once showed "60" beside a medium-risk response.
+    total = round(total, 1)
     return RiskScore(
-        total=round(total, 1),
+        total=total,
         band=band_for(total),
         rule_points=round(rule_points, 1),
         model_points=round(anomaly.points, 1),
@@ -134,6 +138,11 @@ SEVERITY_ORDER: tuple[ActionTaken, ...] = (
     ActionTaken.BLOCK_AND_ALERT,
 )
 
+NO_TRANSFER_MANDATE_POLICY = (
+    "This role has no mandate to move customer funds; transfers from it are "
+    "blocked whatever the risk score."
+)
+
 HOSTILE_LINK_POLICY = (
     "Customer-facing messages carrying a suspicious link are never delivered "
     "without human review, whatever the sender's risk score."
@@ -147,6 +156,9 @@ def decide(risk: RiskScore, event: Event) -> tuple[ActionTaken, str | None]:
     would have done, the policy's wording -- so the console can say "held by
     policy" rather than leaving an analyst to wonder why a score of 30 was
     quarantined.
+
+    A fund transfer from a role with no transfer mandate is blocked outright:
+    that is an authorisation rule, not a question of degree.
 
     Two message-specific rules. A held message can be released by a reviewer;
     a blocked login cannot be un-blocked after the fact. So HIGH-band messages
@@ -164,6 +176,13 @@ def decide(risk: RiskScore, event: Event) -> tuple[ActionTaken, str | None]:
         action = ActionTaken.STEP_UP
     else:
         action = ActionTaken.ALLOW
+
+    if (
+        event.action is Action.FUND_TRANSFER
+        and event.actor_role not in TRANSFER_LIMITS
+        and _below(action, ActionTaken.BLOCK)
+    ):
+        return ActionTaken.BLOCK, NO_TRANSFER_MANDATE_POLICY
 
     to_customers = is_message and event.message is not None and event.message.audience == "customer"
     hostile_link = any(s.name == "suspicious_url" for s in risk.signals)

@@ -24,7 +24,9 @@ import asyncio
 import json
 import os
 import re
+import secrets
 import uuid
+import zlib
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Any
@@ -37,17 +39,19 @@ from sse_starlette.sse import EventSourceResponse
 
 from . import scenarios as scenario_mod
 from .auth import DEMO_ACCOUNTS, AuthStore, Session
+from .banking import Bank
 from .customers import customer_book, masked
 from .evaluate import run_evaluation
 from .generator import BY_ACTOR, CITIES, generate_history
-from .models import Action, ActionTaken, Decision, Event, MessagePayload
+from .models import Action, ActionTaken, Band, Decision, Event, MessagePayload
 from .narrator import Narrator
 from .pipeline import Engine
 from .portal import (
     HONEYPOT_THRESHOLD,
     MAX_EXPORT,
-    ExportLedger,
     ExportRecord,
+    HoneypotLedger,
+    TransferDecoy,
     choose_rows,
     export_filename,
     is_suspicious,
@@ -77,7 +81,34 @@ class AppState:
         self.traffic_paused = False
         self.evaluation: dict[str, Any] | None = None
         self.book = customer_book()
-        self.ledger = ExportLedger()
+        self.bank = Bank(self.book)
+        self.ledger = HoneypotLedger()
+        self.engine.listeners.append(self._honeypot_trigger)
+
+    def _honeypot_trigger(self, decision: Decision) -> None:
+        """Any high-risk decision about an employee moves them into the
+        honeypot: from then on every portal page they open is served from
+        fake data, and everything they do there is recorded for the SOC."""
+        actor = decision.event.actor
+        high = decision.risk.band in (Band.HIGH, Band.CRITICAL) or decision.action_taken in (
+            ActionTaken.BLOCK,
+            ActionTaken.BLOCK_AND_ALERT,
+        )
+        if not high or actor not in BY_ACTOR:
+            return
+        top = decision.risk.signals[0].name if decision.risk.signals else "risk score"
+        reason = (
+            f"{decision.risk.band.value} risk ({decision.risk.total:.0f}/100) on "
+            f"{decision.event.action.value.replace('_', ' ')}: {top.replace('_', ' ')}"
+        )
+        if decision.policy:
+            reason += f" ({decision.policy})"
+        if self.ledger.watch(actor, reason):
+            self.engine.audit.append(
+                "honeypot.activated",
+                {"actor": actor, "reason": reason, "trigger_event": decision.event.event_id},
+                critical=True,
+            )
 
     @staticmethod
     def _build_engine() -> Engine:
@@ -243,7 +274,9 @@ def stats() -> dict[str, Any]:
         "clock": s.clock.isoformat(),
         "traffic_paused": s.traffic_paused,
         "exports": len(s.ledger.records),
-        "honeypots_served": len(s.ledger.honeypots()),
+        "honeypots_served": len(s.ledger.honeypots()) + len(s.ledger.transfer_decoys()),
+        "transfer_decoys": len(s.ledger.transfer_decoys()),
+        "in_honeypot": len(s.ledger.watchlist()),
     }
 
 
@@ -589,9 +622,13 @@ def login(body: LoginRequest) -> dict[str, Any]:
         decision = s.engine.ingest(
             _portal_event(staff, Action.LOGIN, s, session.session_id, resource="portal")
         )
-        if decision.action_taken in (ActionTaken.BLOCK, ActionTaken.BLOCK_AND_ALERT):
-            a.close(session.token)
-            raise HTTPException(403, "sign-in blocked by security policy")
+        # A high-risk sign-in is *not* refused. The engine's listener has
+        # already put this employee in the honeypot, so they land in a portal
+        # that looks normal and is entirely fake -- a refused login would only
+        # tell an intruder to try something else.
+        s.ledger.record_activity(
+            username, "signed in", risk=decision.risk.total, band=decision.risk.band.value
+        )
     else:
         s.engine.audit.append("auth.soc_login", {"username": username})
 
@@ -648,8 +685,10 @@ def portal_customers(
     session: Session = Depends(require_employee),
 ) -> dict[str, Any]:
     """The customer book as an employee sees it: PII masked."""
-    book = get_state().book
+    s = get_state()
+    book = s.book
     needle = q.strip().lower()
+    s.ledger.record_activity(session.username, "viewed customer directory", search=q, offset=offset)
     rows = [c for c in book if not needle or needle in c.name.lower() or needle in c.customer_id.lower() or needle in c.city.lower()]
     return {
         "total": len(rows),
@@ -729,12 +768,239 @@ def portal_export(body: ExportRequest, session: Session = Depends(require_employ
         # The risk engine treats the rest of this session as coming from
         # someone already caught taking data.
         s.engine.ctx.strike(session.session_id)
+    s.ledger.record_activity(
+        staff.actor, "exported customers as PDF", records=len(rows), doc_ref=doc_ref, decoy=suspicious
+    )
 
     return Response(
         content=pdf,
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# --------------------------------------------------------------------------- #
+# Fund transfers (employee) -- with the honeypot transfer page
+# --------------------------------------------------------------------------- #
+
+ACCOUNT_RE = re.compile(r"^\d{9,18}$")
+IFSC_RE = re.compile(r"^[A-Z]{4}0[A-Z0-9]{6}$")
+OTP_ATTEMPTS = 3
+
+
+class TransferRequest(BaseModel):
+    #: Customer ID (C100001) or account number, for both sides.
+    from_account: str
+    to_account: str
+    to_name: str = Field("", max_length=80)
+    to_ifsc: str = Field("MERB0000001", max_length=11)
+    amount: float = Field(..., gt=0, le=100_000_000)
+    remarks: str = Field("", max_length=120)
+
+
+class VerifyRequest(BaseModel):
+    challenge_id: str
+    code: str
+
+
+#: Pending step-up challenges: id -> (actor, request, decoy, decision summary, code, attempts left)
+_challenges: dict[str, dict[str, Any]] = {}
+
+
+def _resolve(s: AppState, key: str) -> str:
+    """Accept a customer ID (what the masked directory shows) or a full
+    account number, and return the account number."""
+    key = key.replace(" ", "").upper()
+    if key.startswith("C"):
+        return next((c.account_no for c in s.book if c.customer_id == key), key)
+    return key
+
+
+def _account_view(s: AppState, account: str, actor: str) -> dict[str, Any]:
+    c = s.bank.customers[account]
+    return {
+        "customer_id": c.customer_id,
+        "masked": f"•••• {account[-4:]}",
+        "name": c.name,
+        "product": c.product,
+        "city": c.city,
+        "balance": round(s.bank.balance(account, actor), 2),
+    }
+
+
+@app.get("/api/portal/accounts/{account}")
+def portal_account(account: str, session: Session = Depends(require_employee)) -> dict[str, Any]:
+    """Look up a source account for the transfer page. A caught employee sees
+    their shadow balance -- including the fake debits they already made."""
+    s = get_state()
+    account = _resolve(s, account)
+    if account not in s.bank.customers:
+        raise HTTPException(404, "no such account")
+    s.ledger.record_activity(session.username, "looked up account", account=f"•••• {account[-4:]}")
+    return _account_view(s, account, session.username)
+
+
+@app.get("/api/portal/transfers")
+def portal_transfers(session: Session = Depends(require_employee)) -> list[dict[str, Any]]:
+    s = get_state()
+    s.ledger.record_activity(session.username, "viewed transfer history")
+    return [_receipt(t) for t in s.bank.history(session.username)]
+
+
+@app.post("/api/portal/transfers")
+def portal_transfer(body: TransferRequest, session: Session = Depends(require_employee)) -> dict[str, Any]:
+    """Transfer customer funds -- or, for an employee in the honeypot, appear to.
+
+    The flow and the response are identical either way: same validation, same
+    step-up challenge when risk is medium, same receipt. The only difference
+    is which ledger the numbers land in.
+    """
+    s = get_state()
+    staff = BY_ACTOR[session.username]
+    source = _resolve(s, body.from_account)
+    dest = _resolve(s, body.to_account)
+    ifsc = body.to_ifsc.strip().upper()
+    if source not in s.bank.customers:
+        raise HTTPException(400, "source account not found")
+    if not ACCOUNT_RE.match(dest):
+        raise HTTPException(400, "beneficiary account must be 9-18 digits")
+    if dest == source:
+        raise HTTPException(400, "source and beneficiary are the same account")
+    if not IFSC_RE.match(ifsc):
+        raise HTTPException(400, "IFSC must look like ABCD0123456")
+    if body.amount > s.bank.balance(source, staff.actor):
+        raise HTTPException(400, "insufficient balance in source account")
+
+    external = dest not in s.bank.customers
+    decision = s.engine.ingest(
+        _portal_event(
+            staff, Action.FUND_TRANSFER, s, session.session_id,
+            resource="core.payments", amount=float(body.amount),
+            from_account=source, to_account=dest, external=external,
+        )
+    )
+    # The listener has already moved a high-risk employee into the honeypot.
+    decoy = s.ledger.caught(staff.actor)
+    request = body.model_copy(update={"from_account": source, "to_account": dest, "to_ifsc": ifsc})
+
+    if decision.action_taken is ActionTaken.STEP_UP:
+        challenge_id = uuid.uuid4().hex
+        code = f"{secrets.randbelow(10**6):06d}"
+        _challenges[challenge_id] = {
+            "actor": staff.actor,
+            "request": request,
+            "decoy": decoy,
+            "decision": decision,
+            "code": code,
+            "attempts": OTP_ATTEMPTS,
+        }
+        s.ledger.record_activity(
+            staff.actor, "was asked for a one-time code", amount=body.amount, to=f"•••• {dest[-4:]}"
+        )
+        return {
+            "status": "VERIFICATION_REQUIRED",
+            "challenge_id": challenge_id,
+            "sent_to": f"registered mobile •••• {zlib.crc32(staff.actor.encode()) % 10000:04d}",
+            # No real SMS is ever sent. The demo shows the code on screen.
+            "demo_code": code,
+        }
+
+    return _execute(s, staff, request, decoy, decision)
+
+
+@app.post("/api/portal/transfers/verify")
+def portal_verify(body: VerifyRequest, session: Session = Depends(require_employee)) -> dict[str, Any]:
+    s = get_state()
+    ch = _challenges.get(body.challenge_id)
+    if ch is None or ch["actor"] != session.username:
+        raise HTTPException(404, "no such verification")
+    if body.code.strip() != ch["code"]:
+        ch["attempts"] -= 1
+        if ch["attempts"] <= 0:
+            _challenges.pop(body.challenge_id, None)
+            s.ledger.record_activity(session.username, "failed one-time code three times")
+            raise HTTPException(403, "too many wrong codes; transfer cancelled")
+        raise HTTPException(400, f"wrong code, {ch['attempts']} attempts left")
+    _challenges.pop(body.challenge_id, None)
+    staff = BY_ACTOR[session.username]
+    # Re-check: they may have been caught between the challenge and the code.
+    decoy = ch["decoy"] or s.ledger.caught(staff.actor)
+    return _execute(s, staff, ch["request"], decoy, ch["decision"])
+
+
+def _execute(s: AppState, staff, req: TransferRequest, decoy: bool, decision: Decision) -> dict[str, Any]:
+    txn = s.bank.transfer(
+        actor=staff.actor,
+        from_account=req.from_account,
+        to_account=req.to_account,
+        to_name=req.to_name,
+        to_ifsc=req.to_ifsc,
+        amount=float(req.amount),
+        remarks=req.remarks,
+        shadow=decoy,
+    )
+    if decoy:
+        watch = next((w for w in s.ledger.watch_entries() if w.actor == staff.actor), None)
+        entry = s.engine.audit.append(
+            "transfer.decoy_executed",
+            {
+                "actor": staff.actor,
+                "reference": txn.reference,
+                "amount": txn.amount,
+                "from": f"•••• {txn.from_account[-4:]}",
+                "to": f"•••• {txn.to_account[-4:]}",
+                "external": txn.external,
+                "real_funds_moved": False,
+                "risk_total": decision.risk.total,
+            },
+            critical=True,
+        )
+        s.ledger.add_transfer(
+            TransferDecoy(
+                reference=txn.reference, utr=txn.utr, actor=staff.actor, role=staff.role.value,
+                ts=txn.ts, from_account=txn.from_account, from_name=txn.from_name,
+                to_account=txn.to_account, to_name=txn.to_name, to_ifsc=txn.to_ifsc,
+                external=txn.external, amount=txn.amount,
+                reason=watch.reason if watch else "on the honeypot watchlist",
+                risk_total=decision.risk.total, action_taken=decision.action_taken.value,
+                audit_seq=entry.seq, shown_balance_after=txn.balance_after,
+            )
+        )
+        s.ledger.record_activity(
+            staff.actor, "made a transfer (fake -- no money moved)",
+            amount=txn.amount, to=f"•••• {txn.to_account[-4:]}", reference=txn.reference,
+        )
+    else:
+        s.engine.audit.append(
+            "transfer.executed",
+            {
+                "actor": staff.actor,
+                "reference": txn.reference,
+                "amount": txn.amount,
+                "from": f"•••• {txn.from_account[-4:]}",
+                "to": f"•••• {txn.to_account[-4:]}",
+                "risk_total": decision.risk.total,
+            },
+        )
+    return {"status": "SUCCESS", "receipt": _receipt(txn)}
+
+
+def _receipt(txn) -> dict[str, Any]:
+    """Identical for real and fake transfers. Nothing here may differ."""
+    return {
+        "reference": txn.reference,
+        "utr": txn.utr,
+        "ts": txn.ts.isoformat(),
+        "status": txn.status,
+        "from_account": f"•••• {txn.from_account[-4:]}",
+        "from_name": txn.from_name,
+        "to_account": f"•••• {txn.to_account[-4:]}",
+        "to_name": txn.to_name,
+        "to_ifsc": txn.to_ifsc,
+        "amount": txn.amount,
+        "remarks": txn.remarks,
+        "balance_after": round(txn.balance_after, 2),
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -748,7 +1014,9 @@ def honeypots() -> dict[str, Any]:
     return {
         "threshold": HONEYPOT_THRESHOLD,
         "watchlist": s.ledger.watchlist(),
+        "watch": [w.as_dict() for w in s.ledger.watch_entries()],
         "served": [r.as_dict() for r in s.ledger.honeypots()],
+        "transfer_decoys": [t.as_dict() for t in s.ledger.transfer_decoys()],
         "exports": [r.as_dict(include_canaries=False) for r in reversed(s.ledger.records)][:50],
     }
 
@@ -764,18 +1032,22 @@ def clear_watchlist(actor: str, body: ClearRequest) -> dict[str, Any]:
     s = get_state()
     if not s.ledger.clear(actor):
         raise HTTPException(404, "not on the watchlist")
+    discarded = s.bank.leave_shadow(actor)
     s.engine.audit.append(
-        "honeypot.watchlist_cleared", {"actor": actor, "reviewer": body.reviewer}, critical=True
+        "honeypot.watchlist_cleared",
+        {"actor": actor, "reviewer": body.reviewer, "fake_transfers_discarded": len(discarded)},
+        critical=True,
     )
     return {"cleared": actor, "by": body.reviewer}
 
 
 @app.get("/api/honeypots/trace")
 def trace(q: str = Query(..., min_length=4)) -> dict[str, Any]:
-    """Who took this file? Accepts the document reference from a PDF footer or
-    any account number found in a leaked copy."""
+    """Who did this? Accepts a PDF footer reference, an account number from a
+    leaked file, or a transaction reference / UTR from a decoy transfer."""
     hit = get_state().ledger.trace(q)
     if hit is None:
         return {"found": False, "query": q}
     matched_by, rec = hit
-    return {"found": True, "query": q, "matched_by": matched_by, "export": rec.as_dict()}
+    kind = "transfer" if isinstance(rec, TransferDecoy) else "export"
+    return {"found": True, "query": q, "matched_by": matched_by, "kind": kind, "record": rec.as_dict()}

@@ -1,5 +1,6 @@
 import { token, type StoredSession } from "./session";
 import type {
+  AccountView,
   AuditListing,
   CryptoStatus,
   CustomerPage,
@@ -10,11 +11,13 @@ import type {
   Health,
   HoneypotListing,
   Identity,
+  Receipt,
   Scenario,
   ScenarioRun,
   SealResult,
   Stats,
   TraceResult,
+  TransferResult,
   UrlVerdict,
   Verification,
 } from "./types";
@@ -130,6 +133,20 @@ export const api = {
     const filename = /filename="([^"]+)"/.exec(disposition)?.[1] ?? "customers.pdf";
     return { blob: await res.blob(), filename };
   },
+
+  account: (accountNo: string) =>
+    request<AccountView>(`/api/portal/accounts/${encodeURIComponent(accountNo)}`),
+  transfers: () => request<Receipt[]>("/api/portal/transfers"),
+  transfer: (body: {
+    from_account: string;
+    to_account: string;
+    to_name: string;
+    to_ifsc: string;
+    amount: number;
+    remarks: string;
+  }) => post<TransferResult>("/api/portal/transfers", body),
+  verifyTransfer: (challenge_id: string, code: string) =>
+    post<TransferResult>("/api/portal/transfers/verify", { challenge_id, code }),
 
   // honeypot (SOC)
   honeypots: () => request<HoneypotListing>("/api/honeypots"),

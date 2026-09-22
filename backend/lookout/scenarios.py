@@ -1,6 +1,6 @@
 """Scripted insider incidents.
 
-Six incidents, chosen so that between them they exercise every detector and
+Seven incidents, chosen so that between them they exercise every detector and
 every response band. Each is a list of labelled events replayed through the
 same pipeline as live traffic -- nothing about scoring knows that a scenario is
 running, which is what makes the demo evidence rather than theatre.
@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Callable
 
+from .customers import customer_book
 from .generator import BY_ACTOR, make_event
 from .models import Action, Event, MessagePayload, Role, ThreatClass
 
@@ -194,6 +195,29 @@ def _credential_stuffing(now: datetime, rng: random.Random) -> list[Event]:
     return events
 
 
+def _transfer_fraud(now: datetime, rng: random.Random) -> list[Event]:
+    """A teller drains three customer accounts into new outside accounts at night."""
+    staff = BY_ACTOR["a.fernandes"]
+    at_night = now.replace(hour=21, minute=40, second=0, microsecond=0)
+    if at_night <= now:
+        at_night += timedelta(days=1)
+    session = _sid(rng)
+    book = customer_book()
+    amounts = (190_000, 480_000, 495_000)
+    return [
+        make_event(
+            staff, Action.FUND_TRANSFER, at_night + timedelta(minutes=3 * i), rng,
+            resource="core.payments", session_id=session,
+            amount=float(amount),
+            from_account=book[40 + i].account_no,
+            to_account=f"77{rng.randrange(10**10):010d}",
+            external=True,
+            label=ThreatClass.MALICIOUS, scenario="transfer_fraud",
+        )
+        for i, amount in enumerate(amounts)
+    ]
+
+
 def _negligent_insider(now: datetime, rng: random.Random) -> list[Event]:
     """Not an attack: a teller emails 900 customers a real statement link.
 
@@ -262,6 +286,14 @@ SCENARIOS: tuple[Scenario, ...] = (
         "vault reads in nine minutes.",
         ("Credential misuse", "Abnormal login", "Quantum-safe credential sealing"),
         _credential_stuffing,
+    ),
+    Scenario(
+        "transfer_fraud",
+        "Teller drains customer accounts",
+        "a.fernandes sends ₹1.9L, ₹4.8L and ₹4.95L from three customers' accounts "
+        "to brand-new outside accounts at 21:40.",
+        ("Transfer fraud detection", "Honeypot transfer page", "Role transfer limits"),
+        _transfer_fraud,
     ),
     Scenario(
         "negligent_insider",

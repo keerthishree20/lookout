@@ -1,13 +1,15 @@
 "use client";
 
-import { FileWarning, Fingerprint, Loader2, Search, ShieldOff, UserX } from "lucide-react";
+import { ArrowRightLeft, FileWarning, Fingerprint, Loader2, Search, ShieldOff, UserX } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "@/lib/api";
 import { dateTime, humanise } from "@/lib/format";
-import type { HoneypotListing, TraceResult } from "@/lib/types";
+import type { ExportRecord, HoneypotListing, TraceResult, TransferDecoy } from "@/lib/types";
 
 import { ActionChip, Button, Card, Empty } from "./ui";
+
+const inr = (n: number) => `₹${n.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 
 export function HoneypotPanel({ refreshKey, analyst }: { refreshKey: number; analyst: string }) {
   const [data, setData] = useState<HoneypotListing | null>(null);
@@ -36,33 +38,75 @@ export function HoneypotPanel({ refreshKey, analyst }: { refreshKey: number; ana
   }
 
   const served = data?.served ?? [];
+  const transfers = data?.transfer_decoys ?? [];
 
   return (
     <div className="space-y-4">
       <div className="flex items-start gap-2 rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/5 p-3 text-xs leading-relaxed text-fuchsia-100/90">
         <FileWarning className="mt-0.5 h-4 w-4 shrink-0" />
         <p>
-          When an employee exports <strong>{data?.threshold ?? 100}+ customer records</strong>, or the risk
-          engine flags the export, they are silently handed a <strong>decoy PDF</strong>. It shows the same
-          customers they saw on screen, but every hidden field (full account number, phone, email, balance) is
-          fabricated. Nothing tells them. Every fake account number is a canary: if one ever turns up, it
-          names the person who took it. Once caught, an employee only ever receives decoys until you clear them.
+          When an employee does something <strong>high-risk</strong> (exports {data?.threshold ?? 100}+ customers,
+          makes a suspicious transfer, or trips any detector hard enough), they are silently moved into the{" "}
+          <strong>honeypot</strong>. Their portal keeps looking exactly the same, but from then on it runs on fake
+          data. Exports are decoy PDFs whose hidden fields are fabricated. Transfers show success, a reference and a
+          debited balance, but <strong>no money moves</strong>. Every fake account number and transaction reference
+          is traceable, and everything they do is recorded here.
         </p>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Card
-          title={`Decoys served (${served.length})`}
+          title={`Decoys served (${served.length + transfers.length})`}
           icon={<FileWarning className="h-4 w-4 text-fuchsia-400" />}
           className="lg:col-span-2"
         >
-          {served.length === 0 ? (
+          {served.length + transfers.length === 0 ? (
             <Empty>
-              No decoys yet. Sign in as an employee in another tab and export {data?.threshold ?? 100} or more
-              customers.
+              No decoys yet. Sign in as an employee in another tab and export {data?.threshold ?? 100}+ customers, or
+              transfer ₹4.8 lakh to an outside account.
             </Empty>
           ) : (
             <ul className="space-y-2">
+              {transfers.map((t) => (
+                <li key={t.reference} className="rounded-lg border border-red-500/40 bg-zinc-950/40 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <ArrowRightLeft className="h-4 w-4 text-red-300" />
+                      <span className="font-medium text-zinc-100">{t.actor}</span>
+                      <span className="text-xs text-zinc-500">{humanise(t.role)}</span>
+                      <span className="rounded bg-red-500/15 px-1.5 py-0.5 text-[10px] font-medium uppercase text-red-200">
+                        fake transfer
+                      </span>
+                    </div>
+                    <span className="font-mono text-xs text-zinc-500">{dateTime(t.ts)}</span>
+                  </div>
+                  <div className="mt-1.5 text-sm text-zinc-300">
+                    Tried to move <strong>{inr(t.amount)}</strong> from {t.from_name} (
+                    <span className="font-mono">•••• {t.from_account.slice(-4)}</span>) to{" "}
+                    {t.to_name || "—"} (<span className="font-mono">•••• {t.to_account.slice(-4)}</span>, {t.to_ifsc}
+                    {t.external ? ", outside bank" : ""})
+                  </div>
+                  <div className="mt-1 text-xs text-zinc-400">
+                    Shown: <span className="text-emerald-300">success</span>, balance {inr(t.shown_balance_after)} ·{" "}
+                    Real money moved: <strong className="text-red-300">{t.real_funds_moved ? "YES" : "No"}</strong>
+                  </div>
+                  <div className="mt-1 text-xs text-zinc-500">Why: {t.reason}</div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                    <button
+                      onClick={() => {
+                        setQ(t.reference);
+                        runTrace(t.reference);
+                      }}
+                      className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-red-200 hover:bg-zinc-700"
+                    >
+                      {t.reference}
+                    </button>
+                    <span className="text-zinc-500">risk engine: {t.risk_total.toFixed(0)}</span>
+                    <ActionChip action={t.action_taken} />
+                    <span className="font-mono text-zinc-600">audit #{t.audit_seq}</span>
+                  </div>
+                </li>
+              ))}
               {served.map((r) => (
                 <li key={r.doc_ref} className="rounded-lg border border-fuchsia-500/30 bg-zinc-950/40 p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -124,7 +168,7 @@ export function HoneypotPanel({ refreshKey, analyst }: { refreshKey: number; ana
         <div className="space-y-4">
           <Card title="Trace a leaked file" icon={<Fingerprint className="h-4 w-4 text-sky-400" />}>
             <p className="mb-2 text-xs leading-relaxed text-zinc-500">
-              Paste the reference from a PDF footer, or any account number found in a leak.
+              Paste a PDF footer reference, a leaked account number, or a transaction reference / UTR.
             </p>
             <form
               className="flex gap-2"
@@ -136,7 +180,7 @@ export function HoneypotPanel({ refreshKey, analyst }: { refreshKey: number; ana
               <input
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder="MB-DOC-… or 5021 …"
+                placeholder="MB-DOC-…, MBTXN…, or 5021 …"
                 className="min-w-0 flex-1 rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1.5 font-mono text-xs text-zinc-200"
                 aria-label="Document reference or account number"
               />
@@ -149,21 +193,29 @@ export function HoneypotPanel({ refreshKey, analyst }: { refreshKey: number; ana
                 className={`mt-3 rounded-lg p-3 text-sm ring-1 ring-inset ${
                   !trace.found
                     ? "bg-zinc-900 text-zinc-400 ring-zinc-800"
-                    : trace.export?.decoy
+                    : trace.kind === "transfer" || (trace.record as ExportRecord)?.decoy
                       ? "bg-fuchsia-500/10 text-fuchsia-100 ring-fuchsia-500/40"
                       : "bg-sky-500/10 text-sky-100 ring-sky-500/30"
                 }`}
               >
                 {!trace.found ? (
-                  "No export matches. It is not one of ours, or it predates this ledger."
+                  "No match. It is not one of ours, or it predates this ledger."
+                ) : trace.kind === "transfer" ? (
+                  <>
+                    <div className="font-medium">Fake transfer by {(trace.record as TransferDecoy).actor}</div>
+                    <div className="mt-1 text-xs opacity-80">
+                      {inr((trace.record as TransferDecoy).amount)} · {dateTime(trace.record!.ts)} · no money moved
+                    </div>
+                  </>
                 ) : (
                   <>
                     <div className="font-medium">
-                      {trace.export!.decoy ? "Decoy" : "Genuine export"} issued to {trace.export!.actor}
+                      {(trace.record as ExportRecord).decoy ? "Decoy" : "Genuine export"} issued to {trace.record!.actor}
                     </div>
                     <div className="mt-1 text-xs opacity-80">
                       matched by {trace.matched_by === "doc_ref" ? "document reference" : "canary account number"} ·{" "}
-                      {trace.export!.requested} records · {dateTime(trace.export!.ts)} · {trace.export!.filename}
+                      {(trace.record as ExportRecord).requested} records · {dateTime(trace.record!.ts)} ·{" "}
+                      {(trace.record as ExportRecord).filename}
                     </div>
                   </>
                 )}
@@ -171,28 +223,53 @@ export function HoneypotPanel({ refreshKey, analyst }: { refreshKey: number; ana
             )}
           </Card>
 
-          <Card title="Watchlist" icon={<ShieldOff className="h-4 w-4 text-amber-400" />}>
+          <Card title="In the honeypot" icon={<ShieldOff className="h-4 w-4 text-amber-400" />}>
             <p className="mb-2 text-xs leading-relaxed text-zinc-500">
-              These employees receive only decoys, even after signing in again. Clear someone once the
-              investigation is closed. The clearance is written to the signed audit log.
+              These employees see only fake data, even after signing in again. Clear someone once the
+              investigation is closed: their fake transfers disappear from their view and the clearance is
+              written to the signed audit log.
             </p>
-            {(data?.watchlist ?? []).length === 0 ? (
-              <Empty>Nobody is on the watchlist.</Empty>
+            {(data?.watch ?? []).length === 0 ? (
+              <Empty>Nobody is in the honeypot.</Empty>
             ) : (
-              <ul className="space-y-1.5">
-                {data!.watchlist.map((actor) => (
-                  <li key={actor} className="flex items-center justify-between rounded-md bg-zinc-950/40 px-2.5 py-1.5">
-                    <span className="text-sm text-zinc-200">{actor}</span>
-                    <Button
-                      variant="ghost"
-                      className="text-xs"
-                      onClick={async () => {
-                        await api.clearWatchlist(actor, analyst);
-                        load();
-                      }}
-                    >
-                      Clear
-                    </Button>
+              <ul className="space-y-2">
+                {data!.watch.map((w) => (
+                  <li key={w.actor} className="rounded-md bg-zinc-950/40 p-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-medium text-zinc-200">{w.actor}</span>
+                      <Button
+                        variant="ghost"
+                        className="text-xs"
+                        onClick={async () => {
+                          await api.clearWatchlist(w.actor, analyst);
+                          load();
+                        }}
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                    <div className="mt-0.5 text-[11px] text-zinc-500">
+                      since {dateTime(w.since)} · {w.reason}
+                    </div>
+                    {w.activity.length > 0 && (
+                      <details className="mt-1.5 text-xs" open>
+                        <summary className="cursor-pointer select-none text-zinc-400 hover:text-zinc-200">
+                          Activity in the honeypot ({w.activity.length})
+                        </summary>
+                        <ol className="mt-1.5 space-y-1 border-l border-zinc-800 pl-3">
+                          {w.activity.slice(0, 12).map((a, i) => (
+                            <li key={i} className="text-zinc-400">
+                              <span className="font-mono text-[10px] text-zinc-600">
+                                {new Date(a.ts).toLocaleTimeString("en-GB")}
+                              </span>{" "}
+                              {a.what}
+                              {typeof a.amount === "number" && <> · {inr(a.amount)}</>}
+                              {typeof a.records === "number" && <> · {a.records} records</>}
+                            </li>
+                          ))}
+                        </ol>
+                      </details>
+                    )}
                   </li>
                 ))}
               </ul>

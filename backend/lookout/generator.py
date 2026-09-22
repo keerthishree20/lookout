@@ -17,13 +17,17 @@ Singapore data centre, each with their own hours, devices and workload, so that
 
 from __future__ import annotations
 
+import math
 import random
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from functools import lru_cache
 
+from .customers import customer_book as _customer_book
 from .models import (
     CUSTOMER_COMMS_ROLES,
+    TRANSFER_LIMITS,
     Action,
     Event,
     Geo,
@@ -228,8 +232,17 @@ def _work_event(
     elif staff.role is Role.DBA:
         choices.append(Action.VAULT_READ)
         weights.append(1.0)
+    if staff.role in TRANSFER_LIMITS:
+        choices.append(Action.FUND_TRANSFER)
+        weights.append(2.0)
 
     action = rng.choices(choices, weights=weights)[0]
+
+    if action is Action.FUND_TRANSFER:
+        return make_event(
+            staff, action, ts, rng, resource="core.payments", session_id=session,
+            **_benign_transfer(staff, rng),
+        )
 
     if action is Action.DB_QUERY:
         rows = max(1, int(rng.gauss(staff.query_rows, staff.query_rows * 0.30)))
@@ -271,6 +284,52 @@ def _benign_message(staff: Staff, rng: random.Random) -> MessagePayload:
         body="Your Meridian Bank statement is ready in net banking.",
         urls=[url] if url else [],
     )
+
+
+@lru_cache(maxsize=1)
+def customer_book():
+    """The generator reads the book on every transfer; build it once."""
+    return _customer_book()
+
+
+#: Typical single transfer each role processes, in rupees (median of a lognormal).
+TYPICAL_TRANSFER: dict[Role, float] = {
+    Role.TELLER: 18_000,
+    Role.OFFICER: 120_000,
+    Role.MANAGER: 600_000,
+}
+
+
+def payee_pool(actor: str) -> list[tuple[str, bool]]:
+    """The accounts this person routinely pays into: mostly customers of the
+    bank, plus a few long-standing outside payees. (account, is_external)."""
+    book = customer_book()
+    r = random.Random(f"payees:{actor}")
+    internal = [(c.account_no, False) for c in r.sample(book, 12)]
+    external = [(f"91{r.randrange(10**10):010d}", True) for _ in range(3)]
+    return internal + external
+
+
+def _benign_transfer(staff: Staff, rng: random.Random) -> dict:
+    """An ordinary transfer: a usual amount, mostly to someone paid before,
+    occasionally to a new internal customer -- never over the role's limit."""
+    book = customer_book()
+    typical = TYPICAL_TRANSFER[staff.role]
+    amount = min(
+        TRANSFER_LIMITS[staff.role] * 0.9,
+        round(rng.lognormvariate(math.log(typical), 0.55), -2),
+    )
+    if rng.random() < 0.9:
+        to_account, external = rng.choice(payee_pool(staff.actor))
+    else:
+        to_account, external = rng.choice(book).account_no, False
+    source = rng.choice(book).account_no
+    return {
+        "amount": max(500.0, amount),
+        "from_account": source,
+        "to_account": to_account,
+        "external": external,
+    }
 
 
 def _pick_resource(action: Action, rng: random.Random) -> str:

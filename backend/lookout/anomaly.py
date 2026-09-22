@@ -35,6 +35,7 @@ FEATURE_NAMES: tuple[str, ...] = (
     "privilege_level",
     "log_records_read",
     "log_recipients",
+    "log_transfer_amount",
     "worst_url_score",
     "failed_logins_15m",
     "log_km_from_last_login",
@@ -55,6 +56,7 @@ ACTION_SENSITIVITY: dict[Action, float] = {
     Action.CONFIG_CHANGE: 0.8,
     Action.VAULT_READ: 0.9,
     Action.PRIV_ESCALATE: 1.0,
+    Action.FUND_TRANSFER: 0.95,
 }
 
 
@@ -113,6 +115,7 @@ def featurise(event: Event, baseline: Baseline, ctx: DetectionContext) -> np.nda
             float(event.privilege) / 6.0,
             math.log1p(records),
             math.log1p(recipients),
+            math.log1p(float(event.meta.get("amount", 0))),
             url_score,
             float(ctx.count(event.actor, Action.LOGIN_FAILED, event.ts, minutes=15)),
             math.log1p(km),

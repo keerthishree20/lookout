@@ -42,6 +42,7 @@ def test_ordinary_work_is_allowed(engine, rng):
         ("data_exfiltration", ThreatClass.MALICIOUS, {ActionTaken.BLOCK, ActionTaken.BLOCK_AND_ALERT}),
         ("credential_stuffing", ThreatClass.COMPROMISED, {ActionTaken.BLOCK_AND_ALERT}),
         ("negligent_insider", ThreatClass.NEGLIGENT, {ActionTaken.STEP_UP, ActionTaken.QUARANTINE}),
+        ("transfer_fraud", ThreatClass.MALICIOUS, {ActionTaken.BLOCK_AND_ALERT}),
     ],
 )
 def test_each_scenario_ends_in_the_right_place(engine, key, expected_class, strongest):
@@ -207,4 +208,5 @@ def test_scenario_catalogue_is_complete():
     assert set(BY_KEY) == {
         "compromised_account", "privilege_escalation", "phishing_blast",
         "data_exfiltration", "credential_stuffing", "negligent_insider",
+        "transfer_fraud",
     }

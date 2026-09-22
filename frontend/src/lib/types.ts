@@ -102,6 +102,8 @@ export interface Stats {
   traffic_paused: boolean;
   exports: number;
   honeypots_served: number;
+  transfer_decoys: number;
+  in_honeypot: number;
 }
 
 export interface Health {
@@ -263,19 +265,78 @@ export interface ExportRecord {
   canaries?: string[];
 }
 
+export interface TransferDecoy {
+  reference: string;
+  utr: string;
+  actor: string;
+  role: string;
+  ts: string;
+  from_account: string;
+  from_name: string;
+  to_account: string;
+  to_name: string;
+  to_ifsc: string;
+  external: boolean;
+  amount: number;
+  reason: string;
+  risk_total: number;
+  action_taken: ActionTaken;
+  audit_seq: number | null;
+  shown_balance_after: number;
+  real_funds_moved: boolean;
+}
+
+export interface WatchEntry {
+  actor: string;
+  since: string;
+  reason: string;
+  activity: ({ ts: string; what: string } & Record<string, unknown>)[];
+}
+
 export interface HoneypotListing {
   threshold: number;
   watchlist: string[];
+  watch: WatchEntry[];
   served: ExportRecord[];
+  transfer_decoys: TransferDecoy[];
   exports: ExportRecord[];
 }
 
 export interface TraceResult {
   found: boolean;
   query: string;
-  matched_by?: "doc_ref" | "canary_account";
-  export?: ExportRecord;
+  matched_by?: "doc_ref" | "canary_account" | "transaction_ref";
+  kind?: "export" | "transfer";
+  record?: ExportRecord | TransferDecoy;
 }
+
+export interface AccountView {
+  customer_id: string;
+  masked: string;
+  name: string;
+  product: string;
+  city: string;
+  balance: number;
+}
+
+export interface Receipt {
+  reference: string;
+  utr: string;
+  ts: string;
+  status: string;
+  from_account: string;
+  from_name: string;
+  to_account: string;
+  to_name: string;
+  to_ifsc: string;
+  amount: number;
+  remarks: string;
+  balance_after: number;
+}
+
+export type TransferResult =
+  | { status: "SUCCESS"; receipt: Receipt }
+  | { status: "VERIFICATION_REQUIRED"; challenge_id: string; sent_to: string; demo_code: string };
 
 export interface Evaluation {
   overall: {

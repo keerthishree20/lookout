@@ -164,6 +164,9 @@ def _verb(decision: Decision) -> str:
         )
         n = event.message.recipient_count
         return f"sending {channel} to {n:,} recipient{'' if n == 1 else 's'}"
+    if event.action.value == "fund_transfer" and event.meta.get("amount"):
+        where = "an outside account" if event.meta.get("external") else "another customer's account"
+        return f"moving ₹{float(event.meta['amount']):,.0f} to {where}"
     if event.action.value == "db_query" and event.meta.get("record_count"):
         return f"reading {int(event.meta['record_count']):,} rows from {event.resource}"
     return f"{base}{' on ' + event.resource if event.resource else ''}"

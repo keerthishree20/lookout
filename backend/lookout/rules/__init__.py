@@ -39,6 +39,7 @@ from .messaging import (  # noqa: E402
     suspicious_url,
     unauthorized_customer_comms,
 )
+from .transfers import suspicious_transfer  # noqa: E402
 from .privilege import (  # noqa: E402
     dormant_privileged_account,
     out_of_scope_admin_action,
@@ -68,6 +69,8 @@ DETECTORS: Sequence[Detector] = (
     suspicious_url,
     bulk_message_blast,
     unauthorized_customer_comms,
+    # money
+    suspicious_transfer,
 )
 
 

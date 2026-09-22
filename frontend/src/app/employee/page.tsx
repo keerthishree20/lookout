@@ -5,7 +5,9 @@
 // If this page could tell, so could the insider.
 
 import {
+  ArrowRightLeft,
   Building2,
+  Users,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -18,6 +20,7 @@ import {
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
+import { TransferPanel } from "@/components/TransferPanel";
 import { ApiError, api } from "@/lib/api";
 import { humanise } from "@/lib/format";
 import { clearSession, loadSession, type Profile } from "@/lib/session";
@@ -46,6 +49,7 @@ export default function EmployeePortal() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [downloads, setDownloads] = useState<Download[]>([]);
+  const [tab, setTab] = useState<"customers" | "transfer">("customers");
 
   const expired = useCallback(() => {
     clearSession();
@@ -145,7 +149,33 @@ export default function EmployeePortal() {
         </div>
       </header>
 
-      <main className="mx-auto grid max-w-[1400px] gap-5 px-4 py-6 sm:px-6 lg:grid-cols-[1fr_320px]">
+      <nav className="mx-auto flex max-w-[1400px] gap-1 border-b border-slate-800 px-4 sm:px-6" aria-label="Sections">
+        {(
+          [
+            ["customers", "Customers", Users],
+            ["transfer", "Fund transfer", ArrowRightLeft],
+          ] as const
+        ).map(([key, label, Icon]) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-2.5 text-sm ${
+              tab === key ? "border-emerald-400 text-slate-100" : "border-transparent text-slate-500 hover:text-slate-300"
+            }`}
+          >
+            <Icon className="h-4 w-4" />
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      {tab === "transfer" && (
+        <main className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6">
+          <TransferPanel onExpired={expired} />
+        </main>
+      )}
+
+      <main className={`mx-auto grid max-w-[1400px] gap-5 px-4 py-6 sm:px-6 lg:grid-cols-[1fr_320px] ${tab === "customers" ? "" : "hidden"}`}>
         {/* directory */}
         <section className="min-w-0 rounded-xl border border-slate-800 bg-slate-900/60">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 px-4 py-3">

@@ -216,7 +216,7 @@ export default function SocConsole() {
         <Stat
           label="Decoys served"
           value={stats?.honeypots_served ?? "—"}
-          hint={`of ${stats?.exports ?? 0} customer exports`}
+          hint={`${stats?.in_honeypot ?? 0} employee${stats?.in_honeypot === 1 ? "" : "s"} in the honeypot`}
           tone={stats?.honeypots_served ? "danger" : "default"}
         />
         <Stat label="Audit chain" value={stats?.audit_entries.toLocaleString() ?? "—"} hint={`${stats?.audit_checkpoints ?? 0} ML-DSA checkpoints`} />

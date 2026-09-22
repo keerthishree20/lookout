@@ -48,6 +48,15 @@ CUSTOMER_COMMS_ROLES: frozenset[Role] = frozenset(
 #: Roles permitted to send *bulk* customer communication (campaigns).
 BULK_COMMS_ROLES: frozenset[Role] = frozenset({Role.MANAGER, Role.DOMAIN_ADMIN})
 
+#: Largest single customer fund transfer each role may process, in rupees.
+#: Roles absent from this table have no business moving customer money at all
+#: -- which is why a DBA or sysadmin initiating a transfer is itself a signal.
+TRANSFER_LIMITS: dict[Role, int] = {
+    Role.TELLER: 200_000,
+    Role.OFFICER: 1_000_000,
+    Role.MANAGER: 5_000_000,
+}
+
 
 class Action(str, enum.Enum):
     """The verbs Lookout understands."""
@@ -61,6 +70,7 @@ class Action(str, enum.Enum):
     CONFIG_CHANGE = "config_change"
     SEND_MESSAGE = "send_message"
     VAULT_READ = "vault_read"
+    FUND_TRANSFER = "fund_transfer"
 
 
 class ThreatClass(str, enum.Enum):
