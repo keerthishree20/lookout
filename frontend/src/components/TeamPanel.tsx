@@ -34,14 +34,15 @@ export function TeamPanel({ onExpired }: { onExpired: () => void }) {
   }
 
   return (
-    <div className="grid gap-5 lg:grid-cols-[1fr_420px]">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-[minmax(0,1fr)_420px]">
       <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
         <h2 className="mb-1 flex items-center gap-2 text-sm font-semibold text-slate-100">
           <UsersRound className="h-4 w-4 text-emerald-400" /> My team {team && <span className="font-normal text-slate-500">· {team.branch}</span>}
         </h2>
         <p className="mb-3 text-xs text-slate-500">Risk summary for the people who report to you.</p>
         {error && <p className="mb-2 text-xs text-red-400">{error}</p>}
-        <table className="w-full text-left text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[480px] text-left text-sm">
           <thead className="text-[11px] uppercase tracking-wider text-slate-500">
             <tr>
               <th className="py-1.5 font-medium">Employee</th>
@@ -68,6 +69,7 @@ export function TeamPanel({ onExpired }: { onExpired: () => void }) {
             ))}
           </tbody>
         </table>
+        </div>
       </section>
 
       <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">

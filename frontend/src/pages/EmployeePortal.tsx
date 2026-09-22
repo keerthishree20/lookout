@@ -189,7 +189,7 @@ export function EmployeePortal() {
         </main>
       )}
 
-      <main className={`mx-auto grid max-w-[1400px] gap-5 px-4 py-6 sm:px-6 lg:grid-cols-[1fr_320px] ${tab === "customers" ? "" : "hidden"}`}>
+      <main className={`mx-auto grid max-w-[1400px] grid-cols-[minmax(0,1fr)] gap-5 px-4 py-6 sm:px-6 lg:grid-cols-[minmax(0,1fr)_320px] ${tab === "customers" ? "" : "hidden"}`}>
         {/* directory */}
         <section className="min-w-0 rounded-xl border border-slate-800 bg-slate-900/60">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 px-4 py-3">

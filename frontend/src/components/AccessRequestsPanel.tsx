@@ -47,7 +47,7 @@ export function AccessRequestsPanel({ onExpired }: { onExpired: () => void }) {
   }
 
   return (
-    <div className="grid gap-5 lg:grid-cols-[380px_1fr]">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-[380px_minmax(0,1fr)]">
       <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
         <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-100">
           <KeyRound className="h-4 w-4 text-emerald-400" /> Request access

@@ -43,7 +43,7 @@ export function Login() {
   const staff = accounts.filter((a) => a.kind === "employee");
 
   return (
-    <div className="mx-auto grid min-h-screen w-full max-w-6xl items-start gap-8 px-4 py-10 sm:px-6 lg:grid-cols-[380px_1fr] lg:py-16">
+    <div className="mx-auto grid min-h-screen w-full max-w-6xl grid-cols-[minmax(0,1fr)] items-start gap-8 px-4 py-10 sm:px-6 lg:grid-cols-[380px_minmax(0,1fr)] lg:py-16">
       <div>
         <div className="mb-6 flex items-center gap-3">
           <div className="grid h-11 w-11 place-items-center rounded-xl bg-gradient-to-br from-sky-500 to-violet-600 shadow-lg shadow-sky-900/40">

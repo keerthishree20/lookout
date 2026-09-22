@@ -346,3 +346,15 @@ def test_api_docs_are_served(client):
     assert client.get("/redoc").status_code == 200
     assert "Content-Security-Policy" not in client.get("/swagger").headers
     assert client.get("/openapi.json").json()["info"]["title"] == "Lookout"
+
+
+def test_browser_may_send_put_for_policy_updates(client):
+    """Regression: CORS allowed only GET and POST, so the Super Admin's
+    policy save (a PUT) was blocked by the browser before reaching the API."""
+    r = client.options(
+        "/api/admin/policies",
+        headers={"Origin": "http://localhost:3000", "Access-Control-Request-Method": "PUT",
+                 "Access-Control-Request-Headers": "authorization,content-type"},
+    )
+    assert r.status_code == 200
+    assert "PUT" in r.headers["access-control-allow-methods"]

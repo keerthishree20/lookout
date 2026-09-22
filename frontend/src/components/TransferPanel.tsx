@@ -113,7 +113,7 @@ export function TransferPanel({ onExpired }: { onExpired: () => void }) {
   const input = "mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-sm text-slate-100";
 
   return (
-    <div className="grid gap-5 lg:grid-cols-[1fr_380px]">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
       <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
         <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-100">
           <ArrowRightLeft className="h-4 w-4 text-emerald-400" /> Customer fund transfer (NEFT / IMPS)
