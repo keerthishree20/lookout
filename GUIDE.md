@@ -21,10 +21,15 @@
 13. The Tamper-Evident Audit Log
 14. The Narrator (Explainability in Prose)
 15. Synthetic Data and Evaluation
-16. The API
-17. The Console
-18. Configuration & Troubleshooting
-19. Complete Feature Summary
+16. Roles, Sign-in and Sessions
+17. The Employee Portal and the Honeypot
+18. The Supervised Classifier and SHAP
+19. The Database
+20. The API
+21. The Frontend
+22. Docker and CI
+23. Configuration & Troubleshooting
+24. Complete Feature Summary
 
 ---
 
@@ -57,41 +62,57 @@ quantum computers can break today's schemes.
 
 | Layer | Choice | Why |
 |---|---|---|
-| API | FastAPI | Typed request models via Pydantic, async SSE support, auto docs at `/docs` |
-| Live feed | Server-Sent Events (`sse-starlette`) | One-way server→browser is all a feed needs; simpler than WebSockets, auto-reconnects |
+| API | FastAPI | Typed request models via Pydantic, WebSocket and SSE support, docs at `/swagger` and `/redoc` |
+| Live feed | WebSocket (`/api/ws`), with SSE kept as a fallback | One connection carries decisions, stats and alerts to every console page |
 | Models | Pydantic v2 | One definition validates API input *and* serialises decisions |
-| Anomaly detection | scikit-learn IsolationForest | Unsupervised, trains only on benign data, fast, no labels needed |
-| Signatures | `dilithium-py` (ML-DSA-65, FIPS 204) | Real NIST standard, pure Python, no compiler or liboqs build |
-| Key encapsulation | `kyber-py` (ML-KEM-768, FIPS 203) | Same reasons; pairs with AES-256-GCM from `cryptography` |
-| Classical fallback | `cryptography` (Ed25519, X25519, AES-GCM, HKDF) | Keeps the system running if PQC is unavailable, and it says so |
+| Anomaly detection | scikit-learn IsolationForest | Unsupervised, trains only on benign data, no labels needed |
+| Classification | scikit-learn RandomForest + SHAP | A supervised second opinion whose every prediction can be explained |
+| Database | PostgreSQL 16, SQLAlchemy 2, psycopg 3 | A durable record of every decision; SQLite works for tests |
+| Auth | PBKDF2 + PyJWT (HS256) + server-side session registry | Tokens that stop working the moment the engine blocks someone |
+| Signatures | `dilithium-py` (ML-DSA-65, FIPS 204) | A real NIST standard, pure Python, no compiler or liboqs build |
+| Key encapsulation | `kyber-py` (ML-KEM-768, FIPS 203) | Same reasons; paired with AES-256-GCM from `cryptography` |
+| PDFs | fpdf2 | Genuine and decoy exports come from the same renderer, so they can't be told apart |
 | Narrator | Gemini over HTTPS (optional) | Prose summaries; a deterministic template is the default |
-| Frontend | Next.js 16 + React 19 + Tailwind 4 | Same stack as the other projects; one client page |
-| Icons | lucide-react | Consistent, tree-shaken |
-| Tests | pytest (145) | Unit, end-to-end pipeline, API, and a detection-quality floor |
+| Frontend | React 19 + Vite + React Router 7 + Tailwind 4 + Recharts + Axios | A multi-page console that builds to static files nginx can serve |
+| Deployment | Docker Compose + nginx | One command starts the database, API and site |
+| Tests | pytest (275) + Playwright browser checks | Unit, pipeline, API, roles, database, ML and a detection-quality floor |
 
 ---
 
 ## 3. Setup from Scratch
 
+The quickest way is Docker:
+
 ```bash
 git clone https://github.com/keerthishree20/lookout
+cd lookout
+cp .env.example .env       # fill in JWT_SECRET, POST_QUANTUM_KEY, POSTGRES_PASSWORD
+docker compose up -d --build
+# open http://localhost:3000
+```
+
+Without Docker:
+
+```bash
 cd lookout/backend
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-dev.txt
-python -m pytest -q                      # 145 passed
+python -m pytest -q                      # 275 passed
 python -m lookout.evaluate               # precision / recall report
+export JWT_SECRET=$(python -c "import secrets; print(secrets.token_urlsafe(48))")
 uvicorn lookout.api:app --port 8077      # API + live traffic
 ```
 
 ```bash
 cd ../frontend
-npm install
+npm ci
 npm run dev                              # http://localhost:3000
 ```
 
-The API uses port **8077** rather than 8000, which is usually already taken by another local
-FastAPI project. If you change it, set `NEXT_PUBLIC_API_URL` for the frontend.
+The API uses port **8077** rather than 8000, which is usually taken by another local FastAPI
+project. If you change it, set `VITE_API_URL` for the frontend. Python 3.12 is required. Some
+machines still have an old `python3` first on the PATH, so call `python3.12` explicitly.
 
 ---
 
@@ -164,13 +185,13 @@ unusual. A test checks the baseline mean is unchanged after the exfiltration sce
 
 ## 6. The Detectors
 
-Sixteen detectors, each a function `(event, baseline, ctx) -> list[Signal]`. A `Signal` carries its
+Seventeen detectors, each a function `(event, baseline, ctx) -> list[Signal]`. A `Signal` carries its
 points, a complete sentence, and which threat classes it is evidence for:
 
 ```python
 Signal(
     name="impossible_travel",
-    points=40.0,
+    points=50.0,
     explanation="Login from Kyiv, UA is 6,102 km from the previous login in Chennai "
                 "28 minutes earlier -- 13,076 km/h, which no traveller can achieve. ...",
     indicates=[ThreatClass.COMPROMISED],
@@ -195,6 +216,7 @@ Signal(
 | Messaging | `suspicious_url` | a link impersonates the bank or hides its destination |
 | | `bulk_message_blast` | recipients far above sender's norm, or from an unauthorised role |
 | | `unauthorized_customer_comms` | customer messaging from a role without the mandate |
+| Transfers | `suspicious_transfer` | over the role's limit or far above personal norm, a new outside payee, out of hours; a role with no transfer mandate is blocked outright |
 
 ### Why logarithmic volume scoring
 
@@ -325,8 +347,27 @@ BLOCK_AND_ALERT revoked sessions, so the nine vault reads that followed on the s
 ## 11. The Outbound Message Gateway
 
 `POST /api/messages/scan` is where every staff SMS, email or push is checked before it leaves. URLs
-are extracted from the **body** with a regex rather than taken from a separate field, because a
-sender hiding a link would simply leave the field empty.
+are extracted from the **body** rather than taken from a separate field, because a sender hiding
+a link would simply leave the field empty.
+
+The first version only matched links starting with `http://`, `https://` or `www.`. Writing the
+API docs exposed the gap: the example phishing SMS, `Update at meridian-bank.secure-verify.top/re-kyc`,
+came back with no links at all, and real phishing texts usually leave the scheme off. The fix
+also catches bare domains, but only on a known TLD, so ordinary text doesn't turn into links:
+
+```python
+_BARE = r"(?<![\w@.-])(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+([a-z]{2,24})(?![\w-])(?:/[^\s<>\"']*)?"
+
+def extract_urls(text):
+    for m in _LINK.finditer(text):
+        tld = m.group(1)
+        if tld is not None and tld.lower() not in LINK_TLDS:
+            continue          # "today.Update" and "report.pdf" are not links
+        ...
+```
+
+The lookbehind stops `ops@meridianbank.in` from matching as a link, and "Rs.500" fails because
+`500` isn't a TLD.
 
 `urlcheck.py` decides offline whether a link is hostile. With no threat-intel feed, it asks the question that
 matters for internal phishing, **does this link claim to be us when it isn't?**:
@@ -421,16 +462,18 @@ Chennai, Bengaluru, Mumbai and Singapore, each with their own hours, devices, qu
 messaging habits. The simulation includes the awkward benign cases: managers running 400–2,500-recipient
 campaigns, weekend on-call admins, one or two mistyped passwords a day.
 
-`evaluate.py` trains on 30 days and scores a held-out week plus the six scenarios:
+`evaluate.py` trains on 30 days and scores a held-out week plus the nine scenarios:
 
 ```
 precision              : 1.000
-recall                 : 0.967
-false positive rate    : 0.0000  (0 of 940 benign)
-threat classification  : 1.000  (29 of 29 detected incidents named correctly)
+recall                 : 0.974
+false positive rate    : 0.0000  (0 of 872 benign)
+threat classification  : 1.000  (38 of 38 detected incidents named correctly)
 ```
 
-Across five other seeds the worst case was one false positive in 896.
+The one miss is on purpose: the 02:14 login that opens the exfiltration scenario is allowed,
+because an unusual hour alone isn't enough to lock someone out. The query four minutes later is
+blocked.
 
 **What this does and doesn't prove.** Lookout generated both the attacks and the normal traffic,
 so these numbers show internal consistency and that ordinary work doesn't trigger alerts. They are
@@ -443,120 +486,296 @@ false positive. Fixing the simulation, not the detector, was the right call.
 
 ---
 
-## 16. The API
+## 16. Roles, Sign-in and Sessions
 
-| Method | Path | Purpose |
+There are four kinds of people in the system:
+
+| Kind | Accounts | Can |
 |---|---|---|
-| GET | `/api/health`, `/api/stats`, `/api/crypto` | status, counters, crypto status |
-| GET | `/api/decisions?limit&flagged_only` | recent decisions |
-| GET | `/api/stream` | SSE live feed (`event: decision`) |
-| POST | `/api/events` | score an arbitrary event |
-| GET / POST | `/api/scenarios`, `/api/scenarios/{key}/run` | list / inject incidents |
-| POST | `/api/messages/scan` | the message gateway |
-| POST | `/api/urls/inspect` | URL reputation alone |
-| GET / POST | `/api/quarantine`, `/api/quarantine/{id}/release` | held messages |
-| GET | `/api/users`, `/api/users/{actor}` | baselines |
-| GET | `/api/audit`, `/api/audit/verify` | chain and verification |
-| POST | `/api/audit/tamper/{seq}` | demo forgery (disable with `LOOKOUT_ALLOW_TAMPER=0`) |
-| POST | `/api/credentials/seal` | ML-KEM sealing round-trip |
-| GET | `/api/evaluation` | cached precision/recall |
-| POST | `/api/traffic/{pause,resume}`, `/api/reset` | demo controls |
+| Employee | 12 staff, e.g. `r.krishnan` / `Teller@Krishnan1` | use the employee portal only |
+| Manager | `l.mathew`, `v.rao` (employees with the manager role) | the portal, plus **My team**: their team's risk, and approving access requests |
+| SOC analyst | `soc.analyst` / `SocWatch@2026` | the whole console |
+| Super admin | `super.admin` / `SuperAdmin@2026` | the console, plus live policy and final access approval |
 
-Interactive docs: `http://localhost:8077/docs`.
+Passwords are PBKDF2-HMAC-SHA256 with a per-account salt. A successful sign-in returns an HS256
+JWT, but the token isn't the whole story: it carries a session ID that is checked against a
+server-side registry on every request. That is what makes revocation instant. When the engine
+blocks a login or the SOC clicks **Revoke**, the session is gone, even though the JWT is still
+unexpired.
+
+Access control is a single table, checked once in middleware instead of on every handler:
+
+```python
+ROUTE_ACCESS = (
+    ("/api/health", PUBLIC),
+    ("/api/auth/", PUBLIC),
+    ("/api/portal/", frozenset({"employee"})),
+    ("/api/team/", frozenset({"employee"})),   # and the handler checks for a manager
+    ("/api/admin/", frozenset({"superadmin"})),
+)
+CONSOLE = frozenset({"soc", "superadmin"})     # everything else
+```
+
+Because the default is "console only", a new route can't accidentally be exposed to employees.
+
+The sign-in is also an **event**. The engine scores it like anything else (new device, impossible
+travel, a burst of failures), and a blocked login returns 403 with no token even when the password
+was right. On top of that, `LoginLimiter` refuses more than 10 failures in 5 minutes for an account,
+or more than 60 attempts a minute from one IP, with a 429.
+
+**Bug found by the browser test:** a blocked login used to leave a usable session behind, so the
+"blocked" attacker could still read the vault. The fix revokes the session whenever the response
+is a block, and a regression test keeps it that way.
 
 ---
 
-## 17. The Console
+## 17. The Employee Portal and the Honeypot
 
-One client page (`frontend/src/app/page.tsx`) with five tabs:
+The employee portal has four tabs: **Customers** (the book, with PII masked), **Fund transfer**,
+**Access requests**, and, for managers, **My team**.
 
-- **Console**: scenario launcher, live feed over `EventSource`, and the **Why?** panel with the score
-  arithmetic, each signal's points and sentence, and the event's details.
-- **Message gateway**: presets (phishing blast, lookalike, shortener, legitimate), verdict, per-URL
-  findings, quarantine queue with release.
-- **Identities**: every baseline: privilege bars, usual hours, rows/query, reach, countries, peak risk.
-- **Audit & QPC**: algorithm status, credential sealing, chain listing, verify / forge / reset.
-- **Evaluation**: the metrics above with the synthetic-data caveat shown first.
+The brief asked for something unusual: when an employee does something risky, don't block them
+visibly. Show them "a duplicate page of exactly how the transfer page will look", with fake
+values, record everything, and tell the monitoring team.
 
-It was checked in headless Chromium: every tab, scenario injection, forgery detection, no console
-errors, and no horizontal scroll at 390 px wide. `networkidle` never fires on this page because the
-SSE connection stays open. Browser tests must wait on `domcontentloaded`.
+The key design decision was that there is **no duplicate page**. A second page, however faithful,
+could differ in a detail an insider would notice. Instead, the *same* pages switch their data
+source. An engine listener watches every decision:
+
+```python
+def _honeypot_trigger(self, decision):
+    high = decision.risk.band in (Band.HIGH, Band.CRITICAL) or decision.action_taken in (
+        ActionTaken.BLOCK, ActionTaken.BLOCK_AND_ALERT)
+    if not high or actor not in BY_ACTOR:
+        return
+    if self.ledger.watch(actor, reason):
+        self.incidents.note_for_user(actor, "honeypot", f"Moved into the honeypot: {reason}. ...")
+        self.engine.audit.append("honeypot.activated", {...}, critical=True)
+```
+
+Once someone is on the watchlist:
+
+- **Transfers** go to a per-employee **shadow ledger** (`banking.py`). The OTP step, the "Transfer
+  successful" message, the reference number, the UTR and the debited balance all behave exactly
+  like the real thing, and the fake balance stays debited on refresh. No real money moves; each
+  fake transfer is audited with `real_funds_moved: false`.
+- **Exports** return a decoy PDF from the same renderer as a real one. Everything the employee
+  saw on screen is kept (names, customer IDs, the last four digits of the account number), and
+  everything the screen masked is fabricated. A decoy that disagreed with the screen would give
+  itself away.
+- **Canaries.** Fake account numbers, the PDF's footer reference (`MB-DOC-...`), and fake
+  transaction references and UTRs are all recorded. If one turns up later, the SOC pastes it
+  into **Trace** and gets the name of the employee who received it.
+
+Exporting 100 or more customers triggers a decoy on its own; the super admin can change the
+threshold.
+
+**Two bugs worth knowing about.** The watchlist was first keyed by session, so a caught employee
+who signed out and back in got real data again, and could compare it with the decoy. It is now
+keyed by person, and only the SOC's **Clear** ends it. Second, the decoy PDFs' footer was
+drawn after the table, and on a full page that pushed it onto a new page that genuine exports
+didn't have. Moving it into FPDF's `footer()` hook fixed that.
+
+Managers see their team's risk but are never told that someone is in the honeypot. The browser
+test checks that the words don't appear anywhere on the manager's page.
 
 ---
 
-## 18. Configuration & Troubleshooting
+## 18. The Supervised Classifier and SHAP
+
+The spec asked for a trained model with proper evaluation. The IsolationForest (section 7) is
+unsupervised; this one learns from labels.
+
+**Dataset.** `ml/generate_dataset.py` writes 10,600 synthetic *sessions* to
+`backend/datasets/insider_sessions.csv`: 9,400 normal (88.7%), 420 negligent, 330 malicious,
+260 compromised and 190 privilege abuse. There are 18 features per session: login hour,
+location and device change, failed logins, data volume, sensitive-resource access, message count,
+suspicious URLs, privilege level, role-change attempts, transfer amount, new outside payees and
+so on.
+
+The first version of the dataset had two shortcuts, and the model found both. "Any escalation
+request" was a perfect privilege-abuse label, because no normal session contained one. And
+"short session" identified every compromise; SHAP showed the model leaning on exactly that one
+feature. Real life overlaps, so the generator was changed:
+
+- admins make approved just-in-time elevations for change windows;
+- half of the compromised sessions are hijacks in the middle of the real person's working day,
+  so the session keeps its ordinary length and content;
+- negligent sessions are mostly ordinary work.
+
+**Model.** `RandomForestClassifier(n_estimators=200, min_samples_leaf=3,
+class_weight="balanced_subsample")`. Without the class weighting, predicting "normal" every time
+would score 88.7% accuracy.
+
+**Evaluation, done two ways:**
+
+| | stratified 25% split | unseen employees |
+|---|---|---|
+| accuracy | 0.973 | 0.923 |
+| macro F1 | 0.903 | 0.867 |
+| threat recall | 0.837 | 0.876 |
+| negligent recall / precision | 0.638 / 0.827 | 0.677 / **0.297** |
+
+The second column is the honest one. Tested on employees it has never seen, the model confuses
+careless-but-innocent with ordinary work: seven in ten of its "negligent" calls are wrong. That is
+why the model gives a **second opinion** next to the rules and never decides on its own.
+
+**SHAP.** For every flagged session, `TreeExplainer` returns the features that pushed the
+prediction towards its class. The console's decision panel shows them next to the rule signals,
+so an analyst can see both why the rules fired and what the model thinks.
+
+```bash
+cd ml && python generate_dataset.py && python train.py && python explain.py
+```
+
+---
+
+## 19. The Database
+
+With `DATABASE_URL` set, every decision is written through to PostgreSQL across 15 tables:
+roles, permissions, users, login events, sessions, activity logs, risk scores, threat events,
+messages, URL analysis, quarantined messages, alerts, incidents and audit logs. Persistence is an
+engine **listener**, so the detection code doesn't know the database exists.
+
+Each API start is a *run* with its own `run_id`, because the in-memory audit chain starts again at
+sequence 0. `GET /api/db/status` recomputes the SHA-256 chain **from the database rows**, which
+catches someone editing the table directly, not just the in-memory log.
+
+**Bug found by the tests:** SQLite hands back timestamps without a timezone and PostgreSQL with
+one, so comparisons between the two failed. Every timestamp read back now goes through a
+`_utc()` helper. CI runs the database tests against a real PostgreSQL service as well as SQLite.
+
+What it doesn't do: the engine rebuilds its baselines from the synthetic replay on each start and
+doesn't reload them from the database. The database is the durable record, not the engine's
+working memory.
+
+---
+
+## 20. The API
+
+About 70 routes; the full list is in `docs/api.md` and at `/swagger`. The main groups:
+
+| Group | Examples |
+|---|---|
+| Auth | `POST /api/auth/login`, `/logout`, `GET /api/auth/me` |
+| Employee portal | `/api/portal/customers`, `/export`, `/transfers`, `/transfers/verify`, `/access-requests` |
+| Manager | `/api/team/overview`, `/api/team/access-requests/{id}/decide` |
+| Super admin | `GET/PUT /api/admin/policies`, `/api/admin/access-requests` |
+| Live | `WS /api/ws`, `GET /api/stream` (SSE) |
+| Detection | `/api/decisions`, `/api/events`, `/api/scenarios/{key}/run`, `/api/risk/{id}/explanation` |
+| Messaging | `/api/messages/scan`, `/api/urls/inspect`, `/api/quarantine` |
+| SOC work | `/api/alerts`, `/api/incidents` (assign, notes, status, actions), `/api/sessions/{id}/revoke`, `/api/accounts/{u}/disable` |
+| Honeypot | `/api/honeypots`, `/api/honeypots/trace`, `/api/honeypots/watchlist/{actor}/clear` |
+| Audit, crypto, ML, DB | `/api/audit/verify`, `/api/crypto`, `/api/ml/metrics`, `/api/db/status` |
+
+---
+
+## 21. The Frontend
+
+React 19 with Vite, React Router and Tailwind 4. The routes:
+
+- `/login` lists the demo accounts.
+- `/employee` is the portal.
+- The console has 17 pages behind a sidebar (`layouts/SocLayout.tsx`): Dashboard, Simulation,
+  Live activity, Alerts, Incidents, Honeypot, Users (with a per-user page), Sessions, Access
+  control, Privileged access, Messages, Message scanner, Quarantine, Audit & quantum-safe,
+  ML insights, Security policies and Settings.
+
+`hooks/useLive.tsx` opens one WebSocket per tab and shares decisions, stats and alerts with every
+page. The session token lives in `sessionStorage`, so an employee and the SOC can be signed in
+side by side in two tabs of the same browser, which is how the honeypot demo is run.
+
+A Playwright script checks it end to end: all 17 console pages load, the WebSocket connects, SHAP
+rows appear, an incident can be assigned, the decoy PDF and fake transfer look genuine to the
+employee and show up for the SOC, the manager never sees the honeypot, the super admin can save
+policy, the database audit chain verifies, and nothing overflows at phone width.
+
+**Two bugs it caught.** The super admin's **Save policy** did nothing: the browser's CORS
+preflight rejected `PUT` because only GET and POST were allowed. Second, the sign-in page
+overflowed a phone screen by 554 px, because a CSS grid column sized itself to a long table.
+`grid-cols-[minmax(0,1fr)]` fixed it.
+
+---
+
+## 22. Docker and CI
+
+```
+docker compose up -d --build
+  db   postgres:16-alpine, its own volume, port not published
+  api  python:3.12-slim; trains the classifier during the build; healthcheck on /api/health
+  web  node build → nginx; serves the app, proxies /api and the WebSocket to api
+```
+
+The frontend is built with `VITE_API_URL=""`, so it calls `/api/...` on its own origin. nginx
+forwards those calls, including the WebSocket upgrade, which means CORS never comes into it. All
+three containers use `restart: unless-stopped`, so the app comes back after a reboot. Compose
+refuses to start without a `JWT_SECRET`.
+
+GitHub Actions runs three jobs on every push: the backend tests (against a PostgreSQL service
+container), the frontend build, and a Docker image build.
+
+---
+
+## 23. Configuration & Troubleshooting
 
 | Variable | Default | Effect |
 |---|---|---|
+| `DATABASE_URL` | empty (in-memory) | PostgreSQL connection |
+| `JWT_SECRET` | random per process | signs session tokens; 32+ characters |
+| `POST_QUANTUM_KEY` | demo seed | stable ML-DSA key across restarts |
+| `FRONTEND_URL`, `CORS_ORIGINS` | empty | allowed browser origins |
+| `MODEL_PATH` | `backend/trained_models/insider_rf.joblib` | classifier location |
 | `GEMINI_API_KEY` | empty | enables LLM narratives |
-| `GEMINI_MODEL` | `gemini-2.5-flash` | narrator model |
-| `LOOKOUT_AUDIT_SEED` | demo seed | stable ML-DSA key across restarts; change for anything real |
+| `LOOKOUT_HONEYPOT_THRESHOLD` | `100` | customers per export before a decoy |
 | `LOOKOUT_LIVE_TRAFFIC` | `1` | background benign activity |
-| `LOOKOUT_TRAFFIC_INTERVAL` | `1.5` | seconds between background events |
 | `LOOKOUT_ALLOW_TAMPER` | `1` | demo forgery endpoint |
-| `CORS_ORIGINS` | empty | extra origins; localhost is always allowed |
-| `NEXT_PUBLIC_API_URL` | `http://localhost:8077` | frontend → API (set at build time) |
+| `LOOKOUT_SHOW_DEMO_ACCOUNTS` | `1` | list demo credentials on the sign-in page |
+| `VITE_API_URL` | `http://localhost:8077` | frontend → API, fixed at build time |
 
 | Symptom | Cause / fix |
 |---|---|
-| Red "Cannot reach the Lookout API" banner | API not running, or on another port: set `NEXT_PUBLIC_API_URL` and rebuild |
-| `address already in use` on start | another app holds the port; pick another with `--port` |
-| Feed says "reconnecting" | SSE dropped; the browser retries automatically |
-| Dashboard shows "classical" crypto | `dilithium-py` / `kyber-py` not installed in this venv |
-| Re-running credential stuffing looks different | intended: the attacker's IP is still locked from the first run. Use **Reset** |
+| "Cannot reach the Lookout API" | API not running, or on another port: set `VITE_API_URL` and rebuild |
+| Everyone is signed out after a restart | `JWT_SECRET` isn't set, so a random one is generated each start |
+| `SyntaxError: future feature annotations` | an old `python3` (3.6) ran it; use `python3.12` |
+| Dashboard shows "classical" crypto | `dilithium-py` / `kyber-py` aren't installed in this venv |
+| Credential stuffing looks different the second time | intended: the attacker's IP is still locked. Use **Reset** |
+| An employee keeps getting fake data | they're in the honeypot; the SOC clears them on the Honeypot page |
 
 ---
 
-## 19. Complete Feature Summary
-
-### All Features Built
+## 24. Complete Feature Summary
 
 | Feature | File |
 |---|---|
 | Per-identity online baselines | `baselines.py` |
-| 16 explainable detectors | `rules/` |
+| 17 explainable detectors, including transfers | `rules/` |
 | IsolationForest with attributions, capped contribution | `anomaly.py` |
-| Privilege-weighted fusion, 4 bands, graded response | `scoring.py` |
-| Policy floor: hostile links to customers always reviewed | `scoring.decide` |
-| Risk-based step-up scaled by privilege | `scoring.step_up_requirement` |
-| Insider classification with primary weighting, sticky compromise | `scoring.classify` |
-| Session revocation, origin lock-out, persistence detection | `context.py`, `pipeline._respond` |
-| Offline URL reputation with homoglyph folding | `urlcheck.py` |
+| Privilege-weighted fusion, live policy bands, graded response | `scoring.py`, `policy.py` |
+| Policy floors: hostile customer links reviewed, no-mandate transfers blocked | `scoring.decide` |
+| Insider classification, sticky compromise | `scoring.classify` |
+| Session revocation, origin lock-out, persistence detection | `context.py` |
+| Offline URL reputation and scheme-less link extraction | `urlcheck.py` |
 | Message gateway + quarantine with audited release | `api.py`, `pipeline.release` |
-| ML-DSA-65 signed audit checkpoints | `crypto.py`, `audit.py` |
-| ML-KEM-768 credential sealing bound to vault path | `crypto.py` |
-| Tamper demo with exact-entry detection | `audit.tamper`, `/api/audit/tamper` |
+| Four roles, JWT + revocable sessions, rate limiting | `auth.py`, `api.py` |
+| Employee portal: customers, transfers, access requests, team view | `portal.py`, `banking.py` |
+| Honeypot: decoy PDFs, shadow-ledger transfers, canary tracing | `portal.py`, `banking.py` |
+| Alerts and incident management | `incidents.py` |
+| RandomForest classifier on 10,600 sessions, with SHAP | `lookout/ml/`, `ml/` |
+| PostgreSQL write-through, 15 tables, chain re-verified from rows | `lookout/db/` |
+| ML-DSA-65 audit checkpoints, ML-KEM-768 credential sealing | `crypto.py`, `audit.py` |
 | Template / Gemini narrator | `narrator.py` |
-| Synthetic bank + 6 labelled scenarios | `generator.py`, `scenarios.py` |
-| Precision / recall / classification evaluation | `evaluate.py` |
-| SSE live console, 5 tabs | `frontend/` |
-| 145 tests, CI for backend and frontend | `backend/tests/`, `.github/workflows/ci.yml` |
-
-### Data Flow
-
-```
-             ┌────────────── live traffic / scenario / gateway / POST /api/events
-             ▼
-         Event ──► Baseline (read) ──► 16 detectors ─┐
-                         │                           ├─► fuse × privilege ─► band
-                         └──► 13 features ─► Forest ─┘                        │
-                                                                              ▼
-            classify (primary-weighted, session-aware) ◄──── decide + policy floors
-                         │                                                    │
-                         ▼                                                    ▼
-                  narrator (template | Gemini)                 respond: revoke / lock / strike / quarantine
-                         │                                                    │
-                         └──────────────► AuditLog.append (SHA-256 chain, ML-DSA checkpoint)
-                                                        │
-                              Baseline.observe (only if allowed) ◄─┘──► SSE ─► console
-```
+| 9 labelled scenarios, including the spec's attack story | `scenarios.py` |
+| React + Vite console, 17 pages, WebSocket live feed | `frontend/` |
+| Docker Compose + nginx; CI with PostgreSQL and image builds | `docker-compose.yml`, `.github/workflows/ci.yml` |
+| 275 tests | `backend/tests/` |
 
 ### Tech Stack at a Glance
 
 ```
-Backend   Python 3.12 · FastAPI · Pydantic v2 · sse-starlette · scikit-learn · numpy
+Backend   Python 3.12 · FastAPI · Pydantic v2 · SQLAlchemy 2 · PostgreSQL 16 · PyJWT
+ML        scikit-learn (IsolationForest, RandomForest) · SHAP · numpy · joblib
 Crypto    ML-DSA-65 (dilithium-py) · ML-KEM-768 (kyber-py) · AES-256-GCM · HKDF · Ed25519/X25519 fallback
-Frontend  Next.js 16 · React 19 · Tailwind CSS 4 · lucide-react
-Testing   pytest (145) · GitHub Actions
-          (the browser checks in section 17 used Playwright from outside this repo; they are not part of the suite)
+Frontend  React 19 · Vite · React Router 7 · Tailwind CSS 4 · Recharts · Axios · lucide-react
+Deploy    Docker Compose · nginx
+Testing   pytest (275) · Playwright (browser checks, run from outside the repo) · GitHub Actions
 ```
