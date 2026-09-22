@@ -1,6 +1,6 @@
 import pytest
 
-from lookout.urlcheck import inspect_url, levenshtein
+from lookout.urlcheck import extract_urls, inspect_url, levenshtein
 
 
 @pytest.mark.parametrize(
@@ -87,3 +87,20 @@ def test_levenshtein():
     assert levenshtein("kitten", "sitting") == 3
     assert levenshtein("", "abc") == 3
     assert levenshtein("same", "same") == 0
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        # Phishing SMS usually drop the scheme; the link must still be found.
+        ("Update at meridian-bank.secure-verify.top/re-kyc", ["meridian-bank.secure-verify.top/re-kyc"]),
+        ("visit bit.ly/3xYz now!", ["bit.ly/3xYz"]),
+        ("see https://meridianbank.in/offers, and www.bit.ly/x.", ["https://meridianbank.in/offers", "www.bit.ly/x"]),
+        # Ordinary text that only looks dotted is not a link.
+        ("pay Rs.500 today.Update your details", []),
+        ("mail ops@meridianbank.in for help", []),
+        ("report.pdf and data.csv attached, version 4.8", []),
+    ],
+)
+def test_extract_urls(text, expected):
+    assert extract_urls(text) == expected

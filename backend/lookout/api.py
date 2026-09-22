@@ -64,10 +64,7 @@ from .portal import (
     poison,
     render_pdf,
 )
-from .urlcheck import inspect_url
-
-URL_PATTERN = re.compile(r"(?:https?://|www\.)[^\s<>\"']+", re.IGNORECASE)
-
+from .urlcheck import extract_urls, inspect_url
 
 # --------------------------------------------------------------------------- #
 # State
@@ -573,7 +570,7 @@ def scan_message(body: MessageScanRequest) -> dict[str, Any]:
     if staff is None:
         raise HTTPException(404, f"unknown sender {body.sender!r}")
     s = get_state()
-    urls = sorted(set(URL_PATTERN.findall(body.body)))
+    urls = extract_urls(body.body)
     ts = s.clock + timedelta(seconds=30)
     event = Event(
         event_id=str(uuid.uuid4()),

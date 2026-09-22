@@ -19,6 +19,7 @@ Six findings, each independently justifiable in a review:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
@@ -42,6 +43,34 @@ SHORTENERS: frozenset[str] = frozenset(
 RISKY_TLDS: frozenset[str] = frozenset(
     {"zip", "mov", "top", "xyz", "gq", "cf", "tk", "ml", "click", "country", "rest"}
 )
+
+#: TLDs a scheme-less link must end in to count as one. Phishing SMS usually
+#: drop the "https://", so bare domains have to be caught, but "today.Update"
+#: or "Rs.500" in a sentence must not be.
+LINK_TLDS: frozenset[str] = RISKY_TLDS | frozenset(
+    {
+        "com", "net", "org", "in", "co", "io", "info", "biz", "me", "app", "online",
+        "site", "live", "link", "store", "shop", "support", "help", "services",
+        "bank", "money", "finance", "cc", "ly", "gl", "ru", "cn", "uk", "us", "ai",
+    }
+)
+
+_EXPLICIT = r"(?:https?://|www\.)[^\s<>\"']+"
+_BARE = r"(?<![\w@.-])(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+([a-z]{2,24})(?![\w-])(?:/[^\s<>\"']*)?"
+_LINK = re.compile(f"{_EXPLICIT}|{_BARE}", re.IGNORECASE)
+
+
+def extract_urls(text: str) -> list[str]:
+    """Links in a message body: with a scheme, with ``www.``, or bare domains
+    on a known TLD. Trailing sentence punctuation is dropped."""
+    found: set[str] = set()
+    for m in _LINK.finditer(text):
+        tld = m.group(1)
+        if tld is not None and tld.lower() not in LINK_TLDS:
+            continue
+        found.add(m.group(0).rstrip(".,;:!?)]}'\""))
+    return sorted(found)
+
 
 CREDENTIAL_BAIT: tuple[str, ...] = (
     "verify", "kyc", "reactivate", "suspend", "unlock", "netbanking", "otp",

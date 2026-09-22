@@ -74,6 +74,20 @@ def test_gateway_blocks_phishing_and_extracts_the_link_from_the_body(client):
     assert r["urls"][0]["impersonates"]
 
 
+def test_gateway_finds_a_link_written_without_a_scheme(client):
+    r = client.post(
+        "/api/messages/scan",
+        json={
+            "sender": "m.d'souza",
+            "recipient_count": 20000,
+            "body": "Your KYC expires today. Update at meridian-bank.secure-verify.top/re-kyc",
+        },
+    ).json()
+    assert not r["delivered"]
+    assert [u["url"] for u in r["urls"]] == ["meridian-bank.secure-verify.top/re-kyc"]
+    assert r["urls"][0]["impersonates"]
+
+
 def test_gateway_delivers_ordinary_message(client):
     r = client.post(
         "/api/messages/scan",
