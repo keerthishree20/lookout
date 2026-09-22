@@ -131,7 +131,9 @@ class AppState:
 
     @staticmethod
     def _build_engine() -> Engine:
-        seed = os.getenv("LOOKOUT_AUDIT_SEED", "lookout-demo-seed-do-not-use-prod")
+        # POST_QUANTUM_KEY seeds the ML-DSA audit-signing key, so the
+        # verification key survives restarts. The fallback is a demo value.
+        seed = os.getenv("POST_QUANTUM_KEY") or os.getenv("LOOKOUT_AUDIT_SEED", "lookout-demo-seed-do-not-use-prod")
         engine = Engine(
             narrator=Narrator(),
             audit_seed=seed.encode().ljust(32, b"\0")[:32],
@@ -340,7 +342,11 @@ def require_employee(request: Request) -> Session:
     return session
 
 
-_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
+_origins = [
+    o.strip()
+    for o in f'{os.getenv("CORS_ORIGINS", "")},{os.getenv("FRONTEND_URL", "")}'.split(",")
+    if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_origins,

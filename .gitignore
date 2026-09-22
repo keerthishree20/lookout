@@ -9,3 +9,4 @@ node_modules/
 
 # Trained model binaries are rebuilt from the committed dataset.
 backend/trained_models/*.joblib
+dist/

@@ -1,0 +1,51 @@
+# Lookout: `docker compose up -d --build`, then open http://localhost:3000
+#
+# Three containers: PostgreSQL, the FastAPI backend, and nginx serving the
+# React app and proxying /api to the backend. All restart automatically.
+# Settings come from .env (copy .env.example). The database port is not
+# published, so nothing else on this machine can reach it.
+
+name: lookout
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: lookout
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lookout}
+      POSTGRES_DB: lookout
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lookout -d lookout"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://lookout:${POSTGRES_PASSWORD:-lookout}@db:5432/lookout
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env (32+ characters)}
+      POST_QUANTUM_KEY: ${POST_QUANTUM_KEY:-}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      LOOKOUT_LIVE_TRAFFIC: ${LOOKOUT_LIVE_TRAFFIC:-1}
+      LOOKOUT_ALLOW_TAMPER: ${LOOKOUT_ALLOW_TAMPER:-1}
+
+  web:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${LOOKOUT_PORT:-3000}:80"
+
+volumes:
+  pgdata:
