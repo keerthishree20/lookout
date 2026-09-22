@@ -19,10 +19,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from .generator import generate_history
-from .models import ActionTaken, Decision, Event, ThreatClass
+from .models import ActionTaken, Band, Decision, Event, ThreatClass
 from .narrator import Narrator
 from .pipeline import Engine
 from .scenarios import SCENARIOS
+from .scoring import PRIVILEGED_COMMS_POLICY
 
 
 @dataclass
@@ -76,6 +77,10 @@ class EvaluationReport:
     classified_total: int = 0
     per_scenario: dict[str, dict] = field(default_factory=dict)
     worst_false_positives: list[dict] = field(default_factory=list)
+    #: Low-score events given a second factor only because policy requires it
+    #: (privileged staff messaging customers). A mandatory control, not a
+    #: detection, so they count as neither true nor false positives.
+    policy_step_ups: int = 0
 
     @property
     def classification_accuracy(self) -> float:
@@ -93,6 +98,7 @@ class EvaluationReport:
             },
             "per_scenario": self.per_scenario,
             "worst_false_positives": self.worst_false_positives,
+            "policy_step_ups": self.policy_step_ups,
         }
 
     def summary(self) -> str:
@@ -110,6 +116,8 @@ class EvaluationReport:
             f"  ({m.false_positive} of {m.false_positive + m.true_negative} benign)",
             f"threat classification  : {self.classification_accuracy:.3f}"
             f"  ({self.classified_correctly} of {self.classified_total} detected incidents named correctly)",
+            f"policy step-ups        : {self.policy_step_ups}"
+            "  (low-score events given MFA because policy requires it; not counted as detections)",
             "",
             "per scenario (incident events only):",
         ]
@@ -158,10 +166,13 @@ def run_evaluation(
     per_scenario: dict[str, dict] = {}
     false_positives: list[dict] = []
     classified_correctly = classified_total = 0
+    policy_step_ups = 0
 
     for event in holdout + incidents:
         decision = engine.ingest(event)
-        flagged = decision.action_taken is not ActionTaken.ALLOW
+        policy_only = decision.policy == PRIVILEGED_COMMS_POLICY and decision.risk.band is Band.LOW
+        policy_step_ups += policy_only
+        flagged = decision.action_taken is not ActionTaken.ALLOW and not policy_only
         actually_bad = event.label not in (None, ThreatClass.BENIGN)
 
         if actually_bad and flagged:
@@ -207,6 +218,7 @@ def run_evaluation(
         classified_total=classified_total,
         per_scenario=per_scenario,
         worst_false_positives=false_positives[:8],
+        policy_step_ups=policy_step_ups,
     )
 
 

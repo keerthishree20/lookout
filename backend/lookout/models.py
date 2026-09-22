@@ -41,12 +41,12 @@ PRIVILEGE_LEVEL: dict[Role, int] = {
 }
 
 #: Roles permitted to send customer-facing communication at all.
-CUSTOMER_COMMS_ROLES: frozenset[Role] = frozenset(
-    {Role.OFFICER, Role.MANAGER, Role.DOMAIN_ADMIN}
-)
+#: Mutable on purpose: the Super Admin's communication policy edits these sets
+#: in place (see :mod:`lookout.policy`), so every importer sees the change.
+CUSTOMER_COMMS_ROLES: set[Role] = {Role.OFFICER, Role.MANAGER, Role.DOMAIN_ADMIN}
 
 #: Roles permitted to send *bulk* customer communication (campaigns).
-BULK_COMMS_ROLES: frozenset[Role] = frozenset({Role.MANAGER, Role.DOMAIN_ADMIN})
+BULK_COMMS_ROLES: set[Role] = {Role.MANAGER, Role.DOMAIN_ADMIN}
 
 #: Largest single customer fund transfer each role may process, in rupees.
 #: Roles absent from this table have no business moving customer money at all
@@ -71,6 +71,8 @@ class Action(str, enum.Enum):
     SEND_MESSAGE = "send_message"
     VAULT_READ = "vault_read"
     FUND_TRANSFER = "fund_transfer"
+    #: A request the access-control layer refused (failed authorisation).
+    ACCESS_DENIED = "access_denied"
 
 
 class ThreatClass(str, enum.Enum):
@@ -111,15 +113,26 @@ class Geo(BaseModel):
     lon: float
 
 
+class Attachment(BaseModel):
+    """Metadata only: the gateway never stores or opens attachment content."""
+
+    name: str
+    size_kb: float = 0.0
+    content_type: str = ""
+
+
 class MessagePayload(BaseModel):
     """Attached to :attr:`Action.SEND_MESSAGE` events."""
 
     channel: str = "sms"
     recipient_count: int = 1
     audience: str = "internal"  # internal | customer
+    #: Where it is going: an address, a number, or a segment name.
+    recipient: str = ""
     subject: str = ""
     body: str = ""
     urls: list[str] = Field(default_factory=list)
+    attachments: list[Attachment] = Field(default_factory=list)
 
 
 class Event(BaseModel):

@@ -46,11 +46,14 @@ from .db.persistence import from_env as db_from_env
 from .evaluate import run_evaluation
 from .generator import BY_ACTOR, CITIES, ROSTER, generate_history
 from .incidents import ALERT_STATUSES, IncidentBook
+from .message_risk import components as message_components
 from .ml.model import ThreatClassifier, load_metrics
-from .models import PRIVILEGE_LEVEL, Action, ActionTaken, Band, Decision, Event, MessagePayload, Role
+from .models import PRIVILEGE_LEVEL, Action, ActionTaken, Attachment, Band, Decision, Event, MessagePayload, Role
 from .narrator import Narrator
 from .pipeline import Engine
 from .policy import POLICY, PolicyError
+from .pq_vault import CRYPTO_LAYERS, ProtectedStore
+from .runtime import CONFIG, ROLE_OVERRIDES
 from .portal import (
     MAX_EXPORT,
     ExportRecord,
@@ -86,13 +89,81 @@ class AppState:
         self.ledger = HoneypotLedger()
         self.incidents = IncidentBook()
         self.access_requests: list[dict[str, Any]] = []
+        #: Sign-ins waiting for their one-time code: challenge id -> details.
+        self.mfa_challenges: dict[str, dict[str, Any]] = {}
+        self._integrity_alerts: dict[str, str] = {}
+        #: Post-quantum protected store (credentials, config, key material).
+        self.vault = ProtectedStore(self.engine.sealer)
+        self._seed_vault()
         self.engine.listeners.append(self._honeypot_trigger)
         self.engine.listeners.append(self._raise_alert)
+        self.engine.listeners.append(self._broadcast_changes)
+
+    def _seed_vault(self) -> None:
+        """Seal what the spec lists: sensitive configuration, credentials and
+        key material. The plaintexts only exist long enough to be sealed."""
+        v = self.vault
+        v.protect("config/JWT_SECRET", "sensitive_configuration", os.getenv("JWT_SECRET") or secrets.token_urlsafe(48),
+                  "Key that signs session tokens")
+        v.protect("config/DATABASE_URL", "sensitive_configuration", os.getenv("DATABASE_URL") or "(in-memory)",
+                  "Database connection string, including its password")
+        if os.getenv("GEMINI_API_KEY"):
+            v.protect("config/GEMINI_API_KEY", "sensitive_configuration", os.getenv("GEMINI_API_KEY", ""),
+                      "Narrator API key")
+        # Synthetic stand-ins for what a bank's PAM vault would hold.
+        for name, what in (
+            ("vault/core-banking/service-account", "Core banking batch service account password"),
+            ("vault/swift-gateway/api-key", "Payment gateway API key"),
+            ("vault/hsm/operator-pin", "HSM operator PIN"),
+        ):
+            v.protect(name, "credential", secrets.token_urlsafe(24), what + " (synthetic)")
+        v.protect("keys/audit-signing-seed", "key_material", _audit_seed(),
+                  "ML-DSA-65 audit signing seed, wrapped under ML-KEM-768")
+        v.protect("security/detection-policy", "security_artefact", json.dumps(POLICY.current.as_dict(), sort_keys=True),
+                  "Snapshot of the detection policy at start-up")
+
+    def _broadcast_changes(self, decision: Decision) -> None:
+        """Live updates beyond the decision itself: the person's new risk, and
+        for messages, the scan result with its component breakdown."""
+        e = decision.event
+        self.engine.broadcast_extra(
+            "risk",
+            {"user": e.actor, "score": decision.risk.total, "band": decision.risk.band.value,
+             "action": decision.action_taken.value, "event_id": e.event_id},
+        )
+        if e.action is Action.SEND_MESSAGE:
+            self.engine.broadcast_extra("message", _message_row(decision))
+
+    def integrity_alert(self, description: str, reasons: list[str]) -> dict[str, Any]:
+        # One alert per problem: re-running a failing check must not page the
+        # SOC again for the same broken artefact.
+        key = description + "|" + "|".join(reasons)
+        earlier = self.incidents.alerts.get(self._integrity_alerts.get(key, ""))
+        if earlier is not None and earlier.status in ("OPEN", "INVESTIGATING"):
+            return earlier.as_dict()
+        alert = self.incidents.system_alert(
+            alert_type="Quantum-Safe Key/Artefact Security Event",
+            severity="CRITICAL",
+            description=description,
+            reasons=reasons,
+        )
+        self._integrity_alerts[key] = alert.id
+        self.engine.audit.append("integrity.alert", {"alert": alert.id, "description": description}, critical=True)
+        self.engine.broadcast_extra("alert", alert.as_dict())
+        self.engine.broadcast_extra("incident", self.incidents.incidents[alert.incident_id].as_dict(full=False))
+        db = get_db()
+        if db is not None:
+            db.upsert_alert(alert)
+            db.upsert_incident(self.incidents.incidents[alert.incident_id])
+        return alert.as_dict()
 
     def _raise_alert(self, decision: Decision) -> None:
         alert = self.incidents.on_decision(decision)
         if alert is not None:
             self.engine.broadcast_extra("alert", alert.as_dict())
+            self.engine.broadcast_extra(
+                "incident", self.incidents.incidents[alert.incident_id].as_dict(full=False)
+            )
             db = get_db()
             if db is not None:
                 db.upsert_alert(alert)
@@ -128,12 +199,9 @@ class AppState:
 
     @staticmethod
     def _build_engine() -> Engine:
-        # POST_QUANTUM_KEY seeds the ML-DSA audit-signing key, so the
-        # verification key survives restarts. The fallback is a demo value.
-        seed = os.getenv("POST_QUANTUM_KEY") or os.getenv("LOOKOUT_AUDIT_SEED", "lookout-demo-seed-do-not-use-prod")
         engine = Engine(
             narrator=Narrator(),
-            audit_seed=seed.encode().ljust(32, b"\0")[:32],
+            audit_seed=_audit_seed(),
             classifier=get_classifier(),
         )
         db = get_db()
@@ -165,6 +233,13 @@ class AppState:
             )
             self.traffic = [e for e in week if e.ts > start]
         return self.traffic.pop(0)
+
+
+def _audit_seed() -> bytes:
+    """POST_QUANTUM_KEY seeds the ML-DSA audit-signing key, so the
+    verification key survives restarts. The fallback is a demo value."""
+    seed = os.getenv("POST_QUANTUM_KEY") or os.getenv("LOOKOUT_AUDIT_SEED", "lookout-demo-seed-do-not-use-prod")
+    return seed.encode().ljust(32, b"\0")[:32]
 
 
 state: AppState | None = None
@@ -208,9 +283,9 @@ def get_auth() -> AuthStore:
 async def _traffic_loop(interval: float) -> None:
     """Background trickle of ordinary work."""
     while True:
-        await asyncio.sleep(interval)
+        await asyncio.sleep(CONFIG["traffic_interval"])
         s = get_state()
-        if s.traffic_paused:
+        if s.traffic_paused or not CONFIG["live_traffic"]:
             continue
         event = s.next_traffic_event()
         s.advance(event.ts)
@@ -355,6 +430,50 @@ app.add_middleware(
 )
 
 
+_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u200b-\u200f\u202a-\u202e\u2066-\u2069]")
+
+
+def sanitize(text: str) -> str:
+    """Input sanitising for free text: drop control and bidi-override
+    characters (which can disguise a link or a filename) and normalise
+    Unicode. Output is always rendered as text by the console, never as HTML."""
+    import unicodedata
+
+    return _CONTROL.sub("", unicodedata.normalize("NFKC", text or "")).strip()
+
+
+def _message_row(d: Decision) -> dict[str, Any]:
+    """One scanned message as the Messages and Quarantine pages show it."""
+    m = d.event.message
+    status = {
+        ActionTaken.ALLOW: "DELIVERED",
+        ActionTaken.STEP_UP: "VERIFICATION_REQUIRED",
+        ActionTaken.QUARANTINE: "QUARANTINED",
+        ActionTaken.BLOCK: "BLOCKED",
+        ActionTaken.BLOCK_AND_ALERT: "BLOCKED",
+    }[d.action_taken]
+    return {
+        "message_id": d.event.event_id,
+        "quarantine_id": d.quarantine_id,
+        "sender": d.event.actor,
+        "sender_role": d.event.actor_role.value,
+        "recipient": (m.recipient if m else "") or (f"{m.recipient_count:,} {m.audience} recipient(s)" if m else ""),
+        "recipient_count": m.recipient_count if m else 0,
+        "channel": m.channel if m else "",
+        "subject": m.subject if m else "",
+        "body": m.body if m else "",
+        "attachments": [a.model_dump() for a in m.attachments] if m else [],
+        "timestamp": d.event.ts.isoformat(),
+        "status": status,
+        "risk_score": d.risk.total,
+        "risk_level": d.risk.band.value.upper(),
+        "reasons": [s_.explanation for s_ in d.risk.signals],
+        "urls": [inspect_url(u).as_dict() for u in (m.urls if m else [])],
+        "classification": d.threat_class.value,
+        "components": message_components(d),
+    }
+
+
 def _wire(kind: str, item: Any) -> Any:
     return _dump(item) if kind == "decision" else item
 
@@ -401,7 +520,7 @@ def stats() -> dict[str, Any]:
 
 @app.get("/api/crypto")
 def crypto() -> dict[str, Any]:
-    return get_state().engine.crypto()
+    return {**get_state().engine.crypto(), "layers": CRYPTO_LAYERS}
 
 
 # --------------------------------------------------------------------------- #
@@ -481,7 +600,9 @@ def ml_metrics() -> dict[str, Any]:
     metrics = load_metrics()
     if metrics is None:
         raise HTTPException(404, "model not trained yet")
-    return metrics
+    from .nlp import content_model
+
+    return {**metrics, "content_model": content_model().metrics}
 
 
 class IngestRequest(BaseModel):
@@ -537,6 +658,9 @@ def reset() -> dict[str, Any]:
     s = get_state()
     subscribers = list(s.engine._subscribers)
     POLICY.reset()  # a demo reset also restores the default security policy
+    ROLE_OVERRIDES.clear()
+    RESOURCE_MIN_LEVEL.clear()
+    RESOURCE_MIN_LEVEL.update(DEFAULT_RESOURCE_MIN_LEVEL)
     limiter.__init__()
     s.reset()
     # Keep open dashboards connected across a reset.
@@ -551,11 +675,14 @@ def reset() -> dict[str, Any]:
 
 class MessageScanRequest(BaseModel):
     sender: str
-    channel: str = "sms"
-    recipient_count: int = Field(1, ge=1)
-    audience: str = "customer"
-    subject: str = ""
-    body: str
+    channel: str = Field("sms", pattern="^(sms|email|push|notification)$")
+    recipient_count: int = Field(1, ge=1, le=10_000_000)
+    audience: str = Field("customer", pattern="^(customer|internal)$")
+    #: Destination: an address, number or segment. Optional.
+    recipient: str = Field("", max_length=200)
+    subject: str = Field("", max_length=300)
+    body: str = Field(..., max_length=5000)
+    attachments: list[Attachment] = Field(default_factory=list, max_length=20)
     city: str | None = None
 
 
@@ -570,7 +697,9 @@ def scan_message(body: MessageScanRequest) -> dict[str, Any]:
     if staff is None:
         raise HTTPException(404, f"unknown sender {body.sender!r}")
     s = get_state()
-    urls = extract_urls(body.body)
+    text = sanitize(body.body)
+    subject = sanitize(body.subject)
+    urls = extract_urls(f"{subject} {text}")
     ts = s.clock + timedelta(seconds=30)
     event = Event(
         event_id=str(uuid.uuid4()),
@@ -583,12 +712,15 @@ def scan_message(body: MessageScanRequest) -> dict[str, Any]:
         device_id=staff.device,
         geo=CITIES[body.city or staff.city],
         message=MessagePayload(
-            channel=body.channel,
+            channel="push" if body.channel == "notification" else body.channel,
             recipient_count=body.recipient_count,
             audience=body.audience,
-            subject=body.subject,
-            body=body.body,
+            recipient=sanitize(body.recipient),
+            subject=subject,
+            body=text,
             urls=urls,
+            attachments=[Attachment(name=sanitize(a.name)[:120], size_kb=max(0.0, a.size_kb),
+                                    content_type=sanitize(a.content_type)[:80]) for a in body.attachments],
         ),
         meta={"session_id": f"gw-{uuid.uuid4().hex[:8]}", "via": "gateway"},
     )
@@ -599,6 +731,11 @@ def scan_message(body: MessageScanRequest) -> dict[str, Any]:
         "held": d.action_taken.value == "quarantine",
         "requires_step_up": d.action_taken.value == "step_up",
         "urls": [inspect_url(u).as_dict() for u in urls],
+        "message_risk": {
+            "score": d.risk.total,
+            "level": d.risk.band.value.upper(),
+            "components": message_components(d),
+        },
         "decision": _dump(d),
     }
 
@@ -613,24 +750,32 @@ def inspect(body: dict[str, str]) -> dict[str, Any]:
 
 @app.get("/api/quarantine")
 def quarantine() -> list[dict[str, Any]]:
+    engine = get_state().engine
     return [
-        {"quarantine_id": qid, **_dump(d)}
-        for qid, d in get_state().engine.quarantine.items()
+        {
+            "quarantine_id": qid,
+            "review": engine.quarantine_review.get(qid, {"status": "HELD"}),
+            "message": _message_row(d),
+            **_dump(d),
+        }
+        for qid, d in engine.quarantine.items()
     ]
 
 
 class ReleaseRequest(BaseModel):
-    reviewer: str
+    #: Ignored when signed in: the reviewer is whoever is signed in.
+    reviewer: str = ""
 
 
 @app.post("/api/quarantine/{qid}/release")
-def release(qid: str, body: ReleaseRequest) -> dict[str, Any]:
-    d = get_state().engine.release(qid, body.reviewer)
+def release(qid: str, request: Request, body: ReleaseRequest | None = None) -> dict[str, Any]:
+    reviewer = current_session(request).username
+    d = get_state().engine.release(qid, reviewer)
     if d is None:
         raise HTTPException(404, "not in quarantine")
     if get_db() is not None:
-        get_db().review_quarantine(qid, body.reviewer, "released")
-    return {"released": qid, "by": body.reviewer}
+        get_db().review_quarantine(qid, reviewer, "released")
+    return {"released": qid, "by": reviewer}
 
 
 # --------------------------------------------------------------------------- #
@@ -677,14 +822,23 @@ def audit(limit: int = Query(40, ge=1, le=500)) -> dict[str, Any]:
 
 @app.get("/api/audit/verify")
 def audit_verify() -> dict[str, Any]:
-    return get_state().engine.audit.verify().model_dump()
+    s = get_state()
+    result = s.engine.audit.verify()
+    out = result.model_dump()
+    if not result.ok:
+        out["alert"] = s.integrity_alert(
+            "The signed audit log no longer verifies: an entry or checkpoint was altered.",
+            [result.reason or "audit verification failed"]
+            + ([f"first bad entry: #{result.broken_at}"] if result.broken_at is not None else []),
+        )
+    return out
 
 
 @app.post("/api/audit/tamper/{seq}")
 def audit_tamper(seq: int) -> dict[str, Any]:
     """Demo only: rewrite a past decision the way a malicious admin would, so
     the console can show verification catching it. ``POST /api/reset`` undoes."""
-    if os.getenv("LOOKOUT_ALLOW_TAMPER", "1") != "1":
+    if not CONFIG["allow_tamper_demo"]:
         raise HTTPException(403, "tamper demo disabled")
     log = get_state().engine.audit
     if not log.tamper(seq):
@@ -734,6 +888,11 @@ def _portal_event(staff, action: Action, s: AppState, session_id: str, **meta) -
     bank's intranet, so location and device are the employee's own; what they
     *do* is what gets scored."""
     ts = s.clock + timedelta(seconds=30)
+    at_hour = meta.pop("at_hour", None)
+    if at_hour is not None:
+        # The next time the clock reads that hour (the simulated sign-in time).
+        target = ts.replace(hour=at_hour, minute=30, second=0, microsecond=0)
+        ts = target if target > ts else target + timedelta(days=1)
     s.advance(ts)
     return Event(
         event_id=str(uuid.uuid4()),
@@ -742,17 +901,48 @@ def _portal_event(staff, action: Action, s: AppState, session_id: str, **meta) -
         actor_role=staff.role,
         action=action,
         resource=meta.pop("resource", ""),
-        source_ip=f"{staff.ip_prefix}.60",
-        device_id=staff.device,
-        geo=CITIES[staff.city],
+        source_ip=meta.pop("ip", None) or f"{staff.ip_prefix}.60",
+        device_id=meta.pop("device_id", None) or staff.device,
+        geo=CITIES[meta.pop("city", None) or staff.city],
         success=action is not Action.LOGIN_FAILED,
         meta={"session_id": session_id, "via": "portal", **meta},
     )
 
 
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    #: Username, or the work email address (name@meridianbank.example).
+    username: str = Field(..., max_length=120)
+    password: str = Field(..., max_length=200)
+    # -- sign-in context (simulation) -----------------------------------------
+    # The portal is on the bank's intranet, so by default a sign-in comes from
+    # the employee's own desk. For the demo, the sign-in page can say it comes
+    # from elsewhere: another device, another city, another hour.
+    device_id: str | None = Field(None, max_length=60)
+    city: str | None = None
+    ip: str | None = Field(None, max_length=45)
+    at_hour: int | None = Field(None, ge=0, le=23)
+
+
+def _login_risk(decision: Decision) -> dict[str, Any]:
+    """The spec's login-risk shape: score, level and reasons."""
+    return {
+        "risk_score": decision.risk.total,
+        "risk_level": decision.risk.band.value.upper(),
+        "reason": [s_.explanation for s_ in decision.risk.signals] or ["Sign-in matches this person's usual pattern"],
+        "action": decision.action_taken.value,
+    }
+
+
+def _login_username(raw: str) -> str:
+    u = raw.strip()
+    if "@" in u:
+        local, _, domain = u.partition("@")
+        if domain.lower() == "meridianbank.example":
+            candidates = [a for a in BY_ACTOR if a.replace("'", "") == local] + (
+                [local] if local in ("soc.analyst", "super.admin") else []
+            )
+            return candidates[0] if candidates else u
+    return u
 
 
 limiter = LoginLimiter()
@@ -764,8 +954,9 @@ def login(body: LoginRequest, request: Request) -> dict[str, Any]:
     in the pipeline, so guessing at a colleague's account trips the same
     failed-login-burst and credential-misuse detectors as any other attack."""
     a, s = get_auth(), get_state()
-    username = body.username.strip()
+    username = _login_username(body.username)
     staff = BY_ACTOR.get(username)
+    context = _login_context(staff, body) if staff is not None else {}
     client = request.client.host if request.client else "unknown"
     wait = limiter.check(username, client)
     if wait is not None:
@@ -785,17 +976,41 @@ def login(body: LoginRequest, request: Request) -> dict[str, Any]:
     if not ok:
         if staff is not None:
             s.engine.ingest(
-                _portal_event(staff, Action.LOGIN_FAILED, s, session_id="", resource="portal")
+                _portal_event(staff, Action.LOGIN_FAILED, s, session_id="", resource="portal", **context)
             )
         elif a.kind_of(username) in ("soc", "superadmin"):
             s.engine.audit.append("auth.console_login_failed", {"username": username})
         raise HTTPException(401, "wrong username or password")
 
     session = a.open_session(username)
+    risk: dict[str, Any] | None = None
     if staff is not None:
         decision = s.engine.ingest(
-            _portal_event(staff, Action.LOGIN, s, session.session_id, resource="portal")
+            _portal_event(staff, Action.LOGIN, s, session.session_id, resource="portal", **context)
         )
+        risk = _login_risk(decision)
+        if decision.action_taken is ActionTaken.STEP_UP and CONFIG["login_mfa"]:
+            # Risk-based authentication: a medium-risk sign-in needs a second
+            # factor before it gets a working session.
+            a.close(session.token)
+            challenge = secrets.token_urlsafe(12)
+            otp = f"{secrets.randbelow(1_000_000):06d}"
+            s.mfa_challenges[challenge] = {
+                "username": username, "otp": otp, "attempts": 0, "context": context,
+                "factor": decision.event.meta.get("step_up_required", "push_notification"),
+                "expires": datetime.now() + timedelta(minutes=5), "risk": risk,
+            }
+            s.engine.audit.append("auth.mfa_challenge", {"username": username, "risk": risk["risk_score"]})
+            _broadcast_session("mfa_required", username, "")
+            return {
+                "mfa_required": True,
+                "challenge_id": challenge,
+                "factor": s.mfa_challenges[challenge]["factor"],
+                # A simulated second factor: a real deployment sends this to
+                # the user's registered device instead of returning it.
+                "demo_otp": otp,
+                "risk": risk,
+            }
         # A high-risk sign-in is *not* refused. The engine's listener has
         # already put this employee in the honeypot, so they land in a portal
         # that looks normal and is entirely fake -- a refused login would only
@@ -806,10 +1021,73 @@ def login(body: LoginRequest, request: Request) -> dict[str, Any]:
     else:
         s.engine.audit.append("auth.console_login", {"username": username, "kind": session.kind})
 
+    return _finish_login(session, username, risk)
+
+
+def _finish_login(session: Session, username: str, risk: dict[str, Any] | None) -> dict[str, Any]:
     db = get_db()
     if db is not None:
         db.open_session(session.session_id, username, session.profile.get("device", ""))
-    return {"token": session.token, "kind": session.kind, "profile": session.profile}
+    _broadcast_session("login", username, session.session_id)
+    out: dict[str, Any] = {"token": session.token, "kind": session.kind, "profile": session.profile}
+    if risk is not None:
+        out["risk"] = risk
+    return out
+
+
+def _login_context(staff, body: LoginRequest) -> dict[str, Any]:
+    ctx: dict[str, Any] = {}
+    if body.device_id:
+        ctx["device_id"] = sanitize(body.device_id)
+    if body.city:
+        if body.city not in CITIES:
+            raise HTTPException(400, f"city must be one of {sorted(CITIES)}")
+        ctx["city"] = body.city
+    if body.ip:
+        if not re.fullmatch(r"\d{1,3}(\.\d{1,3}){3}", body.ip):
+            raise HTTPException(400, "ip must be an IPv4 address")
+        ctx["ip"] = body.ip
+    if body.at_hour is not None:
+        ctx["at_hour"] = body.at_hour
+    return ctx
+
+
+def _broadcast_session(change: str, username: str, session_id: str) -> None:
+    get_state().engine.broadcast_extra(
+        "session", {"change": change, "username": username, "session_id": session_id}
+    )
+
+
+class MfaVerify(BaseModel):
+    challenge_id: str = Field(..., max_length=64)
+    otp: str = Field(..., pattern=r"^\d{6}$")
+
+
+@app.post("/api/auth/mfa/verify")
+def mfa_verify(body: MfaVerify) -> dict[str, Any]:
+    """Second step of a medium-risk sign-in. Three wrong codes end the
+    challenge, and each wrong code is scored like a failed sign-in."""
+    s = get_state()
+    ch = s.mfa_challenges.get(body.challenge_id)
+    if ch is None or ch["expires"] < datetime.now():
+        s.mfa_challenges.pop(body.challenge_id, None)
+        raise HTTPException(401, "challenge expired; sign in again")
+    staff = BY_ACTOR[ch["username"]]
+    if not secrets.compare_digest(body.otp, ch["otp"]):
+        ch["attempts"] += 1
+        s.engine.ingest(
+            _portal_event(staff, Action.LOGIN_FAILED, s, session_id="", resource="portal.mfa", **ch["context"])
+        )
+        if ch["attempts"] >= 3:
+            s.mfa_challenges.pop(body.challenge_id, None)
+            raise HTTPException(401, "too many wrong codes; sign in again")
+        raise HTTPException(401, f"wrong code ({3 - ch['attempts']} tries left)")
+    s.mfa_challenges.pop(body.challenge_id, None)
+    session = get_auth().open_session(ch["username"])
+    s.engine.audit.append("auth.mfa_passed", {"username": ch["username"], "factor": ch["factor"]})
+    s.ledger.record_activity(ch["username"], "signed in (after verification)", risk=ch["risk"]["risk_score"],
+                             band=ch["risk"]["risk_level"].lower())
+    return _finish_login(session, ch["username"], ch["risk"])
 
 
 @app.post("/api/auth/logout")
@@ -820,6 +1098,8 @@ def logout(request: Request) -> dict[str, Any]:
         get_auth().close(token)
         if sess is not None and get_db() is not None:
             get_db().close_session(sess.session_id, "logged_out")
+        if sess is not None:
+            _broadcast_session("logout", sess.username, sess.session_id)
     return {"ok": True}
 
 
@@ -835,7 +1115,7 @@ def me(request: Request) -> dict[str, Any]:
 def demo_accounts() -> list[dict[str, str]]:
     """The demo credentials, for the sign-in page. This is a simulated bank;
     set LOOKOUT_SHOW_DEMO_ACCOUNTS=0 to hide them."""
-    if os.getenv("LOOKOUT_SHOW_DEMO_ACCOUNTS", "1") != "1":
+    if not CONFIG["show_demo_accounts"]:
         return []
     out = []
     for username, password, kind in DEMO_ACCOUNTS:
@@ -1392,6 +1672,10 @@ class PolicyUpdate(BaseModel):
     critical: float | None = None
     honeypot_export_threshold: int | None = None
     transfer_limits: dict[str, int] | None = None
+    customer_comms_roles: list[str] | None = None
+    bulk_comms_roles: list[str] | None = None
+    bulk_threshold: int | None = None
+    privileged_comms_step_up: bool | None = None
 
 
 @app.put("/api/admin/policies")
@@ -1490,6 +1774,7 @@ def revoke_session(session_id: str, request: Request) -> dict[str, Any]:
         get_db().close_session(session_id, "revoked")
     s.engine.audit.append("session.revoked", {"session_id": session_id, "user": ended.username, "by": by}, critical=True)
     s.incidents.note_for_user(ended.username, "action", f"Session {session_id} revoked by {by}.")
+    _broadcast_session("revoked", ended.username, session_id)
     return {"revoked": session_id, "user": ended.username}
 
 
@@ -1652,6 +1937,7 @@ RESOURCE_MIN_LEVEL = {
     "authentication_server": 5,
     "admin_console": 5,
 }
+DEFAULT_RESOURCE_MIN_LEVEL = dict(RESOURCE_MIN_LEVEL)
 
 
 class AccessCheck(BaseModel):
@@ -1667,21 +1953,28 @@ def access_check(body: AccessCheck) -> dict[str, Any]:
     risk (their latest score, and whether they are in the honeypot) then
     decides whether in-scope access is normal, needs MFA, or is refused.
     """
-    staff = BY_ACTOR.get(body.user)
+    return access_decision(body.user, body.resource)
+
+
+def access_decision(user: str, resource: str) -> dict[str, Any]:
+    """The policy engine behind ``/api/access/check`` and the employee
+    portal's resource requests."""
+    staff = BY_ACTOR.get(user)
     if staff is None:
         raise HTTPException(404, "unknown user")
-    if body.resource not in RESOURCE_MIN_LEVEL:
+    if resource not in RESOURCE_MIN_LEVEL:
         raise HTTPException(400, f"resource must be one of {sorted(RESOURCE_MIN_LEVEL)}")
     s = get_state()
-    level = PRIVILEGE_LEVEL[staff.role]
-    recent = [d for d in s.engine.decisions if d.event.actor == body.user][-10:]
+    role = ROLE_OVERRIDES.get(user, staff.role)
+    level = PRIVILEGE_LEVEL[role]
+    recent = [d for d in s.engine.decisions if d.event.actor == user][-10:]
     risk = max((d.risk.total for d in recent), default=0.0)
     band = max((d.risk.band for d in recent), key=lambda b: list(Band).index(b), default=Band.LOW)
     approved = any(
-        r["user"] == body.user and r["status"] == "APPROVED" and body.resource.split("_")[0] in r["resource"]
+        r["user"] == user and r["status"] == "APPROVED" and resource.split("_")[0] in r["resource"]
         for r in s.access_requests
     )
-    in_scope = level >= RESOURCE_MIN_LEVEL[body.resource] or approved
+    in_scope = level >= RESOURCE_MIN_LEVEL[resource] or approved
     privileged = level >= 4
 
     if not in_scope:
@@ -1690,15 +1983,15 @@ def access_check(body: AccessCheck) -> dict[str, Any]:
         decision, why = "BLOCK_AND_REVOKE", f"{band.value} risk on a {'privileged ' if privileged else ''}account"
     elif band is Band.HIGH:
         decision, why = "RESTRICTED", "high current risk: read-only, no export"
-    elif band is Band.MEDIUM or (privileged and body.resource in ("admin_console", "authentication_server")):
+    elif band is Band.MEDIUM or (privileged and resource in ("admin_console", "authentication_server")):
         decision, why = "MFA_REQUIRED", "medium risk, or privileged access to a critical system"
     else:
         decision, why = "ALLOWED", "in scope and low risk"
     monitoring = "enhanced" if privileged or decision != "ALLOWED" else "standard"
     return {
-        "user": body.user,
-        "role": staff.role.value,
-        "resource": body.resource,
+        "user": user,
+        "role": role.value,
+        "resource": resource,
         "decision": decision,
         "reason": why,
         "current_risk": risk,
@@ -1738,6 +2031,22 @@ def dashboard_statistics() -> dict[str, Any]:
             band.value: sum(d.risk.band is band for d in decisions) for band in Band
         },
         "alerts_by_type": _count(a.alert_type for a in alerts_),
+        "message_outcomes": {
+            label: sum(
+                d.event.action is Action.SEND_MESSAGE and d.action_taken in actions for d in decisions
+            )
+            for label, actions in (
+                ("delivered", (ActionTaken.ALLOW,)),
+                ("verification", (ActionTaken.STEP_UP,)),
+                ("quarantined", (ActionTaken.QUARANTINE,)),
+                ("blocked", (ActionTaken.BLOCK, ActionTaken.BLOCK_AND_ALERT)),
+            )
+        },
+        "login_anomalies": sum(
+            d.event.action in (Action.LOGIN, Action.LOGIN_FAILED) and d.action_taken is not ActionTaken.ALLOW
+            for d in decisions
+        ),
+        "privilege_escalation_attempts": sum(d.event.action is Action.PRIV_ESCALATE for d in decisions),
     }
 
 
@@ -1749,7 +2058,8 @@ def risk_trends(buckets: int = Query(24, ge=4, le=96)) -> dict[str, Any]:
         return {"buckets": []}
     t0, t1 = ds[0].event.ts, ds[-1].event.ts
     span = max((t1 - t0).total_seconds(), 1.0) / buckets
-    rows = [{"start": (t0 + timedelta(seconds=span * i)).isoformat(), "count": 0, "flagged": 0, "sum": 0.0, "peak": 0.0} for i in range(buckets)]
+    rows = [{"start": (t0 + timedelta(seconds=span * i)).isoformat(), "count": 0, "flagged": 0, "sum": 0.0, "peak": 0.0,
+             "login_anomalies": 0, "privilege_escalations": 0, "messages_held": 0} for i in range(buckets)]
     for d in ds:
         i = min(buckets - 1, int((d.event.ts - t0).total_seconds() // span))
         r = rows[i]
@@ -1757,6 +2067,9 @@ def risk_trends(buckets: int = Query(24, ge=4, le=96)) -> dict[str, Any]:
         r["sum"] += d.risk.total
         r["peak"] = max(r["peak"], d.risk.total)
         r["flagged"] += d.action_taken is not ActionTaken.ALLOW
+        r["login_anomalies"] += d.event.action in (Action.LOGIN, Action.LOGIN_FAILED) and d.action_taken is not ActionTaken.ALLOW
+        r["privilege_escalations"] += d.event.action is Action.PRIV_ESCALATE
+        r["messages_held"] += d.event.action is Action.SEND_MESSAGE and d.action_taken is not ActionTaken.ALLOW
     for r in rows:
         r["mean"] = round(r.pop("sum") / r["count"], 1) if r["count"] else 0.0
     return {"buckets": rows}
@@ -1785,8 +2098,60 @@ def user_risk(actor: str) -> dict[str, Any]:
         "locations": _count(d.event.geo.city for d in mine),
         "resources": _count(d.event.resource for d in mine if d.event.resource),
         "messages": sum(d.event.action is Action.SEND_MESSAGE for d in mine),
+        "message_activity": [_message_row(d) for d in mine if d.event.action is Action.SEND_MESSAGE][-20:][::-1],
+        "sessions": _session_history(mine)[-15:][::-1],
+        "daily_risk": _daily_risk(mine),
+        "sudden_changes": _sudden_changes(mine),
         "alerts": [a.as_dict() for a in s.incidents.alerts.values() if a.user == actor],
     }
+
+
+def _session_history(mine: list[Decision]) -> list[dict[str, Any]]:
+    by_session: dict[str, dict[str, Any]] = {}
+    for d in mine:
+        sid = str(d.event.meta.get("session_id", ""))
+        if not sid:
+            continue
+        row = by_session.setdefault(sid, {
+            "session_id": sid, "start": d.event.ts.isoformat(), "end": d.event.ts.isoformat(),
+            "device": d.event.device_id, "ip": d.event.source_ip, "city": d.event.geo.city,
+            "events": 0, "peak_risk": 0.0, "ended": "open",
+        })
+        row["end"] = d.event.ts.isoformat()
+        row["events"] += 1
+        row["peak_risk"] = max(row["peak_risk"], d.risk.total)
+        if d.event.action is Action.LOGOUT:
+            row["ended"] = "logged out"
+        elif d.action_taken is ActionTaken.BLOCK_AND_ALERT or (
+            d.action_taken is ActionTaken.BLOCK and d.event.action is Action.LOGIN
+        ):
+            row["ended"] = "revoked"
+    return list(by_session.values())
+
+
+def _daily_risk(mine: list[Decision]) -> list[dict[str, Any]]:
+    """Peak risk per simulated day: the spec's Day 1 -> 15 ... Day 4 -> 75."""
+    days: dict[str, float] = {}
+    for d in mine:
+        key = d.event.ts.date().isoformat()
+        days[key] = max(days.get(key, 0.0), d.risk.total)
+    return [{"day": k, "peak_risk": v} for k, v in sorted(days.items())]
+
+
+def _sudden_changes(mine: list[Decision]) -> list[dict[str, Any]]:
+    """Jumps of 30+ points from the person's recent level: what the risk
+    trend graph highlights as a sudden behavioural change. The level starts at
+    0 because the learned history behind every baseline was ordinary, allowed
+    work."""
+    out, window = [], []
+    for d in mine:
+        level = sum(window) / len(window) if window else 0.0
+        if d.risk.total - level >= 30:
+            out.append({"ts": d.event.ts.isoformat(), "from": round(level, 1), "to": d.risk.total,
+                        "event_id": d.event.event_id, "action": d.event.action.value,
+                        "why": d.risk.signals[0].explanation if d.risk.signals else ""})
+        window = (window + [d.risk.total])[-10:]
+    return out[-10:]
 
 
 @app.get("/api/users/{actor}/activity")
@@ -1846,3 +2211,8 @@ def db_status() -> dict[str, Any]:
         "rows": db.counts(),
         "audit_chain": db.audit_integrity(),
     }
+
+
+# Routes that complete the project specification live in their own module;
+# importing it registers them on this app (and behind the same middleware).
+from . import routes_spec  # noqa: E402,F401

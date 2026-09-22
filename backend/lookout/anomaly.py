@@ -57,6 +57,7 @@ ACTION_SENSITIVITY: dict[Action, float] = {
     Action.VAULT_READ: 0.9,
     Action.PRIV_ESCALATE: 1.0,
     Action.FUND_TRANSFER: 0.95,
+    Action.ACCESS_DENIED: 0.7,
 }
 
 

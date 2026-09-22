@@ -37,7 +37,7 @@ from .models import (
 #: Ordered, non-overlapping, and deliberately conservative at the top:
 #: BLOCK_AND_ALERT pages a human, so it must be rare and right.
 BAND_THRESHOLDS: tuple[tuple[float, Band], ...] = (
-    (85.0, Band.CRITICAL),
+    (80.0, Band.CRITICAL),
     (60.0, Band.HIGH),
     (30.0, Band.MEDIUM),
     (0.0, Band.LOW),
@@ -149,6 +149,11 @@ NO_TRANSFER_MANDATE_POLICY = (
     "blocked whatever the risk score."
 )
 
+PRIVILEGED_COMMS_POLICY = (
+    "Customer-facing messages from a privileged administrator need a second "
+    "factor and are monitored, whatever the risk score."
+)
+
 HOSTILE_LINK_POLICY = (
     "Customer-facing messages carrying a suspicious link are never delivered "
     "without human review, whatever the sender's risk score."
@@ -194,6 +199,16 @@ def decide(risk: RiskScore, event: Event) -> tuple[ActionTaken, str | None]:
     hostile_link = any(s.name == "suspicious_url" for s in risk.signals)
     if to_customers and hostile_link and _below(action, ActionTaken.QUARANTINE):
         return ActionTaken.QUARANTINE, HOSTILE_LINK_POLICY
+
+    from .policy import POLICY
+
+    if (
+        to_customers
+        and event.privilege >= 4
+        and POLICY.current.privileged_comms_step_up
+        and _below(action, ActionTaken.STEP_UP)
+    ):
+        return ActionTaken.STEP_UP, PRIVILEGED_COMMS_POLICY
 
     return action, None
 

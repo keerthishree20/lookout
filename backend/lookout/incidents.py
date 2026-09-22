@@ -28,6 +28,7 @@ ALERT_TYPES: dict[str, str] = {
     "impossible_travel": "Impossible Travel",
     "abnormal_login_time": "Abnormal Login",
     "new_device_or_network": "Abnormal Login",
+    "compound_login_anomaly": "Abnormal Login",
     "credential_misuse": "Credential Misuse",
     "failed_login_burst": "Credential Misuse",
     "privilege_escalation": "Privilege Escalation",
@@ -38,6 +39,15 @@ ALERT_TYPES: dict[str, str] = {
     "bulk_file_write": "Sensitive Resource Access",
     "vault_hoarding": "Sensitive Resource Access",
     "suspicious_url": "Phishing URL",
+    "phishing_language": "Suspicious Message",
+    "sensitive_data_leak": "Suspicious Message",
+    "risky_attachment": "Suspicious Message",
+    "repeated_message": "Bulk Message Attack",
+    "concurrent_sessions": "Session Anomaly",
+    "login_frequency": "Abnormal Login",
+    "session_context_change": "Session Anomaly",
+    "query_rate_burst": "Session Anomaly",
+    "failed_authorization": "Privilege Escalation",
     "bulk_message_blast": "Bulk Message Attack",
     "unauthorized_customer_comms": "Suspicious Message",
     "revoked_session_use": "Session Anomaly",
@@ -59,6 +69,10 @@ RECOMMENDED: dict[str, str] = {
     "Session Anomaly": "Invalidate all tokens for this identity and investigate how the revoked session was reused.",
     "Transfer Fraud": "Confirm no real funds moved, freeze the beneficiary if external, and interview the employee.",
     "Insider Threat": "Review the full session timeline before contacting the employee.",
+    "Quantum-Safe Key/Artefact Security Event": (
+        "Treat the protected store or audit log as tampered with: preserve it, rotate the affected "
+        "keys and secrets, and find who had write access."
+    ),
 }
 
 
@@ -237,6 +251,55 @@ class IncidentBook:
         )
 
     # -- analyst work -------------------------------------------------------- #
+
+    def system_alert(
+        self,
+        *,
+        alert_type: str,
+        severity: str,
+        description: str,
+        reasons: list[str],
+        user: str = "system",
+        event: str = "integrity_check",
+        risk_score: float = 100.0,
+    ) -> Alert:
+        """An alert raised by Lookout's own integrity checks rather than by a
+        scored decision, e.g. an audit chain or a sealed artefact that no
+        longer verifies. Filed in an incident like any other."""
+        with self._lock:
+            alert = Alert(
+                id=f"AL-{next(self._alert_ids):05d}",
+                severity=severity,
+                user=user,
+                alert_type=alert_type,
+                event_id="",
+                event=event,
+                risk_score=risk_score,
+                ts=_now(),
+                description=description,
+                reasons=reasons,
+                recommended_action=RECOMMENDED.get(alert_type, RECOMMENDED["Insider Threat"]),
+                classification="integrity",
+            )
+            incident = self._open_for(user)
+            if incident is None:
+                incident = Incident(
+                    id=f"INC-{next(self._incident_ids):04d}",
+                    title=f"{alert_type}",
+                    threat_type="integrity",
+                    user=user,
+                    severity=severity,
+                    risk_score=risk_score,
+                    created_at=_now(),
+                    ai_explanation=description,
+                )
+                self.incidents[incident.id] = incident
+                incident.log("opened", f"Incident opened by {alert.id} ({alert_type}).")
+            alert.incident_id = incident.id
+            self.alerts[alert.id] = alert
+            incident.alert_ids.append(alert.id)
+            incident.log("alert", f"{alert.id} {severity} {alert_type}: {description}", alert_id=alert.id)
+            return alert
 
     def create(self, *, title: str, user: str, severity: str, description: str, by: str) -> Incident:
         with self._lock:

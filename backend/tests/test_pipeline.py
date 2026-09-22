@@ -43,7 +43,10 @@ def test_ordinary_work_is_allowed(engine, rng):
         ("credential_stuffing", ThreatClass.COMPROMISED, {ActionTaken.BLOCK_AND_ALERT}),
         ("negligent_insider", ThreatClass.NEGLIGENT, {ActionTaken.STEP_UP, ActionTaken.QUARANTINE}),
         ("transfer_fraud", ThreatClass.MALICIOUS, {ActionTaken.BLOCK_AND_ALERT}),
-        ("abnormal_login", ThreatClass.COMPROMISED, {ActionTaken.STEP_UP}),
+        # 02:30, new device, new country, unknown IP: the spec's high-risk login.
+        ("abnormal_login", ThreatClass.COMPROMISED, {ActionTaken.BLOCK}),
+        ("impossible_travel", ThreatClass.COMPROMISED, {ActionTaken.BLOCK_AND_ALERT}),
+        ("phishing_message", ThreatClass.MALICIOUS, {ActionTaken.QUARANTINE, ActionTaken.BLOCK_AND_ALERT}),
         ("attack_story", ThreatClass.COMPROMISED, {ActionTaken.BLOCK_AND_ALERT}),
     ],
 )
@@ -211,6 +214,7 @@ def test_scenario_catalogue_is_complete():
         "compromised_account", "privilege_escalation", "phishing_blast",
         "data_exfiltration", "credential_stuffing", "negligent_insider",
         "transfer_fraud", "normal_login", "abnormal_login", "attack_story",
+        "impossible_travel", "phishing_message",
     }
 
 

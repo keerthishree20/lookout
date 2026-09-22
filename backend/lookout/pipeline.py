@@ -58,6 +58,10 @@ class Engine:
         self.narrator = narrator or Narrator()
         self.decisions: list[Decision] = []
         self.quarantine: dict[str, Decision] = {}
+        #: Review state for held messages: INVESTIGATING (still held, linked to
+        #: an incident) or a final outcome once it has left the queue.
+        self.quarantine_review: dict[str, dict[str, Any]] = {}
+        self._quarantine_seq = 0
         self.history_size = 0
         #: Supervised second opinion. None disables it (and SHAP) entirely.
         self.classifier = classifier
@@ -140,6 +144,28 @@ class Engine:
             listener(decision)
         return decision
 
+    def assess(self, event: Event) -> Decision:
+        """Score an event without acting on it or recording it: no audit
+        entry, no baseline update, no containment. For "what would Lookout do
+        if..." questions (``POST /api/risk/calculate``)."""
+        with self._lock:
+            baseline = self.store.get(event.actor, event.actor_role)
+            session = str(event.meta.get("session_id", ""))
+            signals = run_detectors(event, baseline, self.ctx)
+            anomaly = self.model.score(featurise(event, baseline, self.ctx))
+            risk = fuse(event, signals, anomaly)
+            action, policy = decide(risk, event)
+            threat_class = (
+                classify(signals, event, prior=self.ctx.prior_class(session))
+                if action is not ActionTaken.ALLOW
+                else ThreatClass.BENIGN
+            )
+            decision = Decision(
+                event=event, risk=risk, action_taken=action, threat_class=threat_class, policy=policy
+            )
+            decision.narrative = self.narrator.describe(decision)
+            return decision
+
     def _second_opinion(self, event: Event, baseline, session: str) -> dict[str, Any]:
         """Classify the whole session so far, not just this event."""
         from .ml.features import session_features
@@ -181,7 +207,8 @@ class Engine:
         self.ctx.remember_class(session, decision.threat_class)
 
         if decision.action_taken is ActionTaken.QUARANTINE:
-            qid = f"q-{len(self.quarantine) + 1:04d}"
+            self._quarantine_seq += 1
+            qid = f"q-{self._quarantine_seq:04d}"
             decision.quarantine_id = qid
             self.quarantine[qid] = decision
 
@@ -196,6 +223,7 @@ class Engine:
         decision = self.quarantine.pop(quarantine_id, None)
         if decision is None:
             return None
+        self.quarantine_review[quarantine_id] = {"status": "RELEASED", "by": reviewer}
         self.audit.append(
             "quarantine.release",
             {
@@ -205,6 +233,47 @@ class Engine:
                 "original_score": decision.risk.total,
             },
             critical=True,
+        )
+        return decision
+
+    def close_quarantine(self, quarantine_id: str, outcome: str, reviewer: str) -> Decision | None:
+        """Take a held message out of the queue for good without delivering it.
+
+        ``blocked`` keeps it on record as a confirmed bad message and counts a
+        strike against the sender's session; ``deleted`` discards it as junk.
+        Either way the message never reaches anyone, and the audit log says
+        who decided.
+        """
+        if outcome not in ("blocked", "deleted"):
+            raise ValueError("outcome must be blocked or deleted")
+        decision = self.quarantine.pop(quarantine_id, None)
+        if decision is None:
+            return None
+        if outcome == "blocked":
+            self.ctx.strike(str(decision.event.meta.get("session_id", "")))
+        self.quarantine_review[quarantine_id] = {"status": outcome.upper(), "by": reviewer}
+        self.audit.append(
+            {"blocked": "quarantine.block", "deleted": "quarantine.delete"}[outcome],
+            {
+                "quarantine_id": quarantine_id,
+                "reviewer": reviewer,
+                "sender": decision.event.actor,
+                "original_event": decision.event.event_id,
+                "original_score": decision.risk.total,
+            },
+            critical=True,
+        )
+        return decision
+
+    def investigate_quarantine(self, quarantine_id: str, reviewer: str, incident_id: str) -> Decision | None:
+        """Keep the message held and tie it to an incident."""
+        decision = self.quarantine.get(quarantine_id)
+        if decision is None:
+            return None
+        self.quarantine_review[quarantine_id] = {"status": "INVESTIGATING", "by": reviewer, "incident_id": incident_id}
+        self.audit.append(
+            "quarantine.investigate",
+            {"quarantine_id": quarantine_id, "reviewer": reviewer, "incident_id": incident_id},
         )
         return decision
 

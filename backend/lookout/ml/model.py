@@ -171,9 +171,17 @@ class ThreatClassifier:
             # it saves.
             model.n_jobs = 1
             return cls(model)
-        from .dataset import build
+        # Train from the committed dataset through the same cleaning step as
+        # ml/train.py; regenerate it only if the file is missing.
+        if DATASET_PATH.exists():
+            from .cleaning import load_clean, to_rows
 
-        model, metrics = train_and_evaluate(build())
+            rows = to_rows(load_clean(DATASET_PATH)[0])
+        else:
+            from .dataset import build
+
+            rows = build()
+        model, metrics = train_and_evaluate(rows)
         save(model, metrics)
         model.n_jobs = 1
         return cls(model)

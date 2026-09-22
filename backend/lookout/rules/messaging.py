@@ -23,8 +23,14 @@ from ..models import (
 )
 from ..urlcheck import inspect_all, worst
 
-#: Recipients above which a send is a campaign rather than a conversation.
-BULK_THRESHOLD = 50
+from ..policy import POLICY
+
+
+def bulk_threshold() -> int:
+    """Recipients above which a send is a campaign rather than a conversation.
+    Set by the Super Admin's communication policy (default 50)."""
+    return POLICY.current.bulk_threshold
+
 
 #: Z-score against the sender's own history that makes a send a blast.
 BLAST_Z_THRESHOLD = 4.0
@@ -49,7 +55,7 @@ def suspicious_url(
     assert top is not None
     reach = event.message.recipient_count
     # A hostile link is bad; a hostile link fanned out to customers is worse.
-    points = 30.0 * top.score + (12.0 if reach >= BULK_THRESHOLD else 0.0)
+    points = 30.0 * top.score + (12.0 if reach >= bulk_threshold() else 0.0)
     if top.impersonates:
         points += 10.0
 
@@ -80,7 +86,7 @@ def bulk_message_blast(
     if event.action is not Action.SEND_MESSAGE or not event.message:
         return []
     reach = event.message.recipient_count
-    if reach < BULK_THRESHOLD:
+    if reach < bulk_threshold():
         return []
 
     z = baseline.recipients_per_message.z(float(reach))
@@ -98,7 +104,7 @@ def bulk_message_blast(
     # sender who normally reaches three people produces enormous z-scores, and
     # a linear term would score 900 recipients the same as 50,000.
     z_term = min(10.0, 3.0 * math.log2(max(z, BLAST_Z_THRESHOLD) / BLAST_Z_THRESHOLD))
-    reach_term = min(12.0, 4.0 * math.log10(reach / BULK_THRESHOLD))
+    reach_term = min(12.0, 4.0 * math.log10(reach / bulk_threshold()))
     points = 16.0 + z_term + reach_term
     if not authorised:
         points += 10.0
@@ -168,7 +174,7 @@ def unauthorized_customer_comms(
             )
         ]
 
-    if reach >= BULK_THRESHOLD and event.actor_role not in BULK_COMMS_ROLES:
+    if reach >= bulk_threshold() and event.actor_role not in BULK_COMMS_ROLES:
         return [
             Signal(
                 name="unauthorized_customer_comms",

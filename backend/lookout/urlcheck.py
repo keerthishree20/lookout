@@ -94,6 +94,9 @@ class UrlVerdict:
     score: float = 0.0  # 0..1, where 1 is "certainly hostile"
     findings: list[str] = field(default_factory=list)
     impersonates: str | None = None
+    #: Raw lexical features, shown next to the findings so an analyst can see
+    #: what the score was computed from.
+    features: dict = field(default_factory=dict)
 
     @property
     def suspicious(self) -> bool:
@@ -104,9 +107,11 @@ class UrlVerdict:
             "url": self.url,
             "host": self.host,
             "score": round(self.score, 2),
+            "risk_score": round(self.score * 100),
             "suspicious": self.suspicious,
             "findings": self.findings,
             "impersonates": self.impersonates,
+            "features": self.features,
         }
 
 
@@ -115,6 +120,7 @@ def inspect_url(url: str, corporate: tuple[str, ...] = CORPORATE_DOMAINS) -> Url
     parts = urlsplit(url if "://" in url else f"http://{url}")
     host = (parts.hostname or "").lower().strip(".")
     verdict = UrlVerdict(url=url, host=host)
+    verdict.features = _lexical(url, parts, host)
     if not host:
         verdict.findings.append("URL has no resolvable host")
         verdict.score = 0.5
@@ -172,8 +178,33 @@ def inspect_url(url: str, corporate: tuple[str, ...] = CORPORATE_DOMAINS) -> Url
         )
         verdict.score += min(0.30, 0.12 * len(bait))
 
-    if parts.scheme == "http" and verdict.score > 0:
+    if url.lower().startswith("http://") and verdict.score > 0:
         verdict.findings.append("link is plain HTTP, so anything entered is in the clear")
+        verdict.score += 0.08
+
+    f = verdict.features
+    if f["userinfo_trick"]:
+        verdict.findings.append(
+            "the part before '@' is decoration: the browser actually goes to "
+            f"{host}, a classic way to disguise a link"
+        )
+        verdict.score += 0.35
+    if f["percent_encoded"] >= 3:
+        verdict.findings.append(
+            f"{f['percent_encoded']} percent-encoded characters obscure what the link says"
+        )
+        verdict.score += 0.12
+    if f["redirect_param"]:
+        verdict.findings.append(
+            "the query carries another address to forward to (an open-redirect pattern), "
+            "so the visible domain is not the destination"
+        )
+        verdict.score += 0.20
+    if f["length"] > 100:
+        verdict.findings.append(f"link is unusually long ({f['length']} characters), which hides its end on a phone")
+        verdict.score += 0.08
+    if f["host_hyphens"] >= 3 or f["host_digits"] >= 5:
+        verdict.findings.append("host is stuffed with hyphens or digits, typical of throwaway phishing domains")
         verdict.score += 0.08
 
     if host.count(".") >= 4:
@@ -185,6 +216,27 @@ def inspect_url(url: str, corporate: tuple[str, ...] = CORPORATE_DOMAINS) -> Url
 
     verdict.score = min(1.0, round(verdict.score, 3))
     return verdict
+
+
+_REDIRECT_KEYS = ("url=", "redirect", "next=", "target=", "dest=", "goto=", "continue=")
+
+
+def _lexical(url: str, parts, host: str) -> dict:
+    """Features computable from the string alone. Domain age and live redirect
+    chains would need a network lookup, which Lookout deliberately doesn't do."""
+    query = parts.query.lower()
+    return {
+        "length": len(url),
+        "https": parts.scheme == "https",
+        "ip_host": _is_ip(host),
+        "userinfo_trick": "@" in parts.netloc,
+        "percent_encoded": url.count("%"),
+        "redirect_param": any(k in query for k in _REDIRECT_KEYS) and ("http" in query or "%2f" in query),
+        "host_hyphens": host.count("-"),
+        "host_digits": sum(c.isdigit() for c in host) if not _is_ip(host) else 0,
+        "subdomain_depth": max(0, host.count(".") - 1),
+        "tld": host.rsplit(".", 1)[-1] if "." in host else "",
+    }
 
 
 def inspect_all(urls: list[str]) -> list[UrlVerdict]:

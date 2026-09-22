@@ -273,5 +273,20 @@
       "login_day",
       0.0089
     ]
-  ]
+  ],
+  "cleaning": {
+    "raw_rows": 10600,
+    "duplicate_sessions_dropped": 0,
+    "incomplete_rows_dropped": 0,
+    "unknown_label_rows_dropped": 0,
+    "values_clipped": 0,
+    "clean_rows": 10600,
+    "class_counts": {
+      "normal": 9400,
+      "negligent": 420,
+      "malicious": 330,
+      "compromised": 260,
+      "privilege_abuse": 190
+    }
+  }
 }

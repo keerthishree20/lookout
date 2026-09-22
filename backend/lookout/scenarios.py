@@ -1,6 +1,6 @@
 """Scripted insider incidents.
 
-Ten scripted situations -- including a normal login as the control case and
+Twelve scripted situations -- including a normal login as the control case and
 the six-step attack story from the project brief -- chosen so that between
 them they exercise every detector and every response band. Each is a list of labelled events replayed through the
 same pipeline as live traffic -- nothing about scoring knows that a scenario is
@@ -35,11 +35,14 @@ class Scenario:
     #: The capabilities from the brief that this incident demonstrates.
     covers: tuple[str, ...]
     build: Callable[[datetime, random.Random], list[Event]]
+    #: The demo button this scenario is, in the spec's own words (section 38).
+    button: str = ""
 
     def as_dict(self) -> dict:
         return {
             "key": self.key,
             "title": self.title,
+            "button": self.button or f"Run: {self.title}",
             "summary": self.summary,
             "covers": list(self.covers),
         }
@@ -307,6 +310,45 @@ def _negligent_insider(now: datetime, rng: random.Random) -> list[Event]:
     ]
 
 
+def _impossible_travel(now: datetime, rng: random.Random) -> list[Event]:
+    """The spec's example: a login in India at 10:00, then the United States at 10:20."""
+    staff = BY_ACTOR["v.rao"]
+    t0 = now.replace(hour=10, minute=0, second=0, microsecond=0)
+    if t0 <= now:
+        t0 += timedelta(days=1)
+    return [
+        make_event(staff, Action.LOGIN, t0, rng, session_id=_sid(rng),
+                   label=ThreatClass.BENIGN, scenario="impossible_travel"),
+        make_event(staff, Action.LOGIN, t0 + timedelta(minutes=20), rng, city="New York",
+                   ip="198.51.100.23", session_id=_sid(rng),
+                   label=ThreatClass.COMPROMISED, scenario="impossible_travel"),
+    ]
+
+
+def _phishing_message(now: datetime, rng: random.Random) -> list[Event]:
+    """One email, one customer: a scam written to look like a KYC notice."""
+    staff = BY_ACTOR["p.nair"]
+    url = "https://meridianbank-kyc-update.top/verify?id=88213"
+    return [
+        make_event(
+            staff, Action.SEND_MESSAGE, now, rng, resource="gateway.outbound",
+            message=MessagePayload(
+                channel="email",
+                recipient_count=1,
+                audience="customer",
+                recipient="customer.8821@example.com",
+                subject="Action required: KYC verification",
+                body=(
+                    "Dear customer, your KYC has expired and your account will be suspended today. "
+                    f"Verify your details and net banking password at {url} to avoid blocking."
+                ),
+                urls=[url],
+            ),
+            session_id=_sid(rng), label=ThreatClass.MALICIOUS, scenario="phishing_message",
+        )
+    ]
+
+
 SCENARIOS: tuple[Scenario, ...] = (
     Scenario(
         "normal_login",
@@ -315,6 +357,7 @@ SCENARIOS: tuple[Scenario, ...] = (
         "The control case: it should be allowed.",
         ("Behaviour analytics", "Risk-based authentication"),
         _normal_login,
+        "Simulate Normal Login",
     ),
     Scenario(
         "abnormal_login",
@@ -323,6 +366,7 @@ SCENARIOS: tuple[Scenario, ...] = (
         "never seen before.",
         ("Abnormal login detection", "Risk-based authentication"),
         _abnormal_login,
+        "Simulate Abnormal Login",
     ),
     Scenario(
         "compromised_account",
@@ -331,6 +375,16 @@ SCENARIOS: tuple[Scenario, ...] = (
         "on an unknown device, and immediately queries the customer table.",
         ("Impossible travel", "Abnormal login", "Credential misuse", "Session monitoring"),
         _compromised_account,
+        "Simulate Compromised Account",
+    ),
+    Scenario(
+        "impossible_travel",
+        "Impossible travel",
+        "v.rao signs in from Bengaluru at 10:00, then from New York at 10:20: about 12,500 km "
+        "in twenty minutes.",
+        ("Impossible travel", "Abnormal login", "Credential misuse"),
+        _impossible_travel,
+        "Simulate Impossible Travel",
     ),
     Scenario(
         "privilege_escalation",
@@ -339,6 +393,16 @@ SCENARIOS: tuple[Scenario, ...] = (
         "minutes, succeeds, and edits IAM policy.",
         ("Privilege escalation", "Privileged access management", "Out-of-scope admin action"),
         _privilege_escalation,
+        "Simulate Privilege Escalation",
+    ),
+    Scenario(
+        "phishing_message",
+        "Phishing email to a customer",
+        "p.nair's account emails one customer a KYC scam carrying a lookalike link, asking "
+        "for their net banking password.",
+        ("Real-time message scanning", "Message content analysis", "URL risk detection", "Message quarantine"),
+        _phishing_message,
+        "Simulate Phishing Message",
     ),
     Scenario(
         "phishing_blast",
@@ -351,6 +415,7 @@ SCENARIOS: tuple[Scenario, ...] = (
             "Message quarantine",
         ),
         _phishing_blast,
+        "Simulate Bulk Fraud Messages",
     ),
     Scenario(
         "data_exfiltration",
@@ -359,6 +424,7 @@ SCENARIOS: tuple[Scenario, ...] = (
         "writes 2.9 GB to a file share.",
         ("Insider threat classification", "Behaviour analytics", "Session monitoring"),
         _data_exfiltration,
+        "Simulate Insider Threat",
     ),
     Scenario(
         "credential_stuffing",
@@ -367,6 +433,7 @@ SCENARIOS: tuple[Scenario, ...] = (
         "vault reads in nine minutes.",
         ("Credential misuse", "Abnormal login", "Quantum-safe credential sealing"),
         _credential_stuffing,
+        "Simulate Credential Misuse",
     ),
     Scenario(
         "transfer_fraud",

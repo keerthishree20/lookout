@@ -46,6 +46,7 @@ CITIES: dict[str, Geo] = {
     "Kyiv": Geo(city="Kyiv", country="UA", lat=50.4501, lon=30.5234),
     "Lagos": Geo(city="Lagos", country="NG", lat=6.5244, lon=3.3792),
     "Sao Paulo": Geo(city="Sao Paulo", country="BR", lat=-23.5505, lon=-46.6333),
+    "New York": Geo(city="New York", country="US", lat=40.7128, lon=-74.0060),
 }
 
 

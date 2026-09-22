@@ -28,6 +28,7 @@ from .data import (  # noqa: E402
 )
 from .identity import (  # noqa: E402
     abnormal_login_time,
+    compound_login_anomaly,
     credential_misuse,
     failed_login_burst,
     impossible_travel,
@@ -38,6 +39,19 @@ from .messaging import (  # noqa: E402
     bulk_message_blast,
     suspicious_url,
     unauthorized_customer_comms,
+)
+from .content import (  # noqa: E402
+    phishing_language,
+    repeated_message,
+    risky_attachment,
+    sensitive_data_leak,
+)
+from .sessions import (  # noqa: E402
+    concurrent_sessions,
+    failed_authorization,
+    login_frequency,
+    query_rate_burst,
+    session_context_change,
 )
 from .transfers import suspicious_transfer  # noqa: E402
 from .privilege import (  # noqa: E402
@@ -53,9 +67,16 @@ DETECTORS: Sequence[Detector] = (
     impossible_travel,
     abnormal_login_time,
     new_device_or_network,
+    compound_login_anomaly,
     failed_login_burst,
     credential_misuse,
     containment_breach,
+    # sessions
+    concurrent_sessions,
+    login_frequency,
+    session_context_change,
+    query_rate_burst,
+    failed_authorization,
     # privilege
     privilege_escalation,
     out_of_scope_admin_action,
@@ -69,6 +90,11 @@ DETECTORS: Sequence[Detector] = (
     suspicious_url,
     bulk_message_blast,
     unauthorized_customer_comms,
+    # message content
+    phishing_language,
+    sensitive_data_leak,
+    risky_attachment,
+    repeated_message,
     # money
     suspicious_transfer,
 )

@@ -163,6 +163,50 @@ def credential_misuse(
     ]
 
 
+#: Points when this many things about one sign-in are new at once.
+COMPOUND_POINTS = {3: 12.0, 4: 30.0}
+
+
+def compound_login_anomaly(
+    event: Event, baseline: Baseline, ctx: DetectionContext
+) -> list[Signal]:
+    """Several unfamiliar things about one sign-in at the same time.
+
+    Each on its own is ordinary: people get new laptops, travel, and sometimes
+    work late. All of them together (the spec's 02:30, new device, new
+    country, unknown IP) is how a stolen password looks, and it should score
+    as high risk rather than merely the sum of four weak signals. Two at once
+    (a new laptop at 02:30) stays a step-up.
+    """
+    if event.action is not Action.LOGIN or not event.success or not baseline.trained:
+        return []
+    novel = []
+    if baseline.hour_frequency(event.ts.hour) <= RARE_HOUR_SHARE:
+        novel.append(f"the hour ({event.ts:%H:%M})")
+    if baseline.is_new_device(event.device_id):
+        novel.append(f"the device ({event.device_id})")
+    if baseline.is_new_country(event.geo.country):
+        novel.append(f"the country ({event.geo.country})")
+    if baseline.is_new_network(event.source_ip):
+        novel.append(f"the network ({event.source_ip})")
+    points = COMPOUND_POINTS.get(len(novel))
+    if points is None:
+        return []
+    return [
+        Signal(
+            name="compound_login_anomaly",
+            points=points,
+            explanation=(
+                f"{len(novel)} things about this sign-in are new for {event.actor} at once: "
+                + ", ".join(novel)
+                + ". Any one is ordinary; together they are how a stolen password looks."
+            ),
+            detail={"novel": novel, "count": len(novel)},
+            indicates=[ThreatClass.COMPROMISED],
+        )
+    ]
+
+
 def failed_login_burst(
     event: Event, baseline: Baseline, ctx: DetectionContext
 ) -> list[Signal]:
