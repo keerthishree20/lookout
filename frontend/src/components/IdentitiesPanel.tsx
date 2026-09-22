@@ -2,11 +2,12 @@ import { Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
+import { useLive } from "@/hooks/useLive";
 import { api } from "@/lib/api";
 import { humanise } from "@/lib/format";
 import type { Identity } from "@/lib/types";
 
-import { Card, Empty } from "./ui";
+import { Card, Empty, SearchBox } from "./ui";
 
 const LEVEL: Record<string, number> = {
   teller: 1,
@@ -20,15 +21,22 @@ const LEVEL: Record<string, number> = {
 
 export function IdentitiesPanel({ refreshKey }: { refreshKey: number }) {
   const [users, setUsers] = useState<Identity[]>([]);
+  const [search, setSearch] = useState("");
+  const { risk } = useLive();
 
   useEffect(() => {
     api.users().then(setUsers).catch(() => setUsers([]));
   }, [refreshKey]);
 
-  const sorted = [...users].sort((a, b) => LEVEL[b.role] - LEVEL[a.role] || b.peak_risk - a.peak_risk);
+  const needle = search.trim().toLowerCase();
+  const sorted = [...users].filter((u) => !needle || `${u.actor} ${u.role}`.toLowerCase().includes(needle)).sort((a, b) => LEVEL[b.role] - LEVEL[a.role] || b.peak_risk - a.peak_risk);
 
   return (
-    <Card title="Behavioural baselines" icon={<Users className="h-4 w-4 text-sky-400" />}>
+    <Card
+      title="Behavioural baselines"
+      icon={<Users className="h-4 w-4 text-sky-400" />}
+      right={<SearchBox value={search} onChange={setSearch} placeholder="User or role" />}
+    >
       <p className="mb-3 text-xs leading-relaxed text-zinc-500">
         What Lookout has learned is normal for each identity. Every threshold is measured against these,
         never against a bank-wide constant — a 2 a.m. login is routine for the on-call sysadmin and
@@ -47,6 +55,7 @@ export function IdentitiesPanel({ refreshKey }: { refreshKey: number }) {
                 <th className="px-2 py-2 font-medium">Rows / query</th>
                 <th className="px-2 py-2 font-medium">Reach / message</th>
                 <th className="px-2 py-2 font-medium">Seen from</th>
+                <th className="px-2 py-2 text-right font-medium">Now</th>
                 <th className="px-4 py-2 text-right font-medium">Peak risk</th>
               </tr>
             </thead>
@@ -81,12 +90,11 @@ export function IdentitiesPanel({ refreshKey }: { refreshKey: number }) {
                   <td className="px-2 py-2 text-xs text-zinc-400">
                     {u.countries.join(", ")} · {u.devices.length} device{u.devices.length === 1 ? "" : "s"}
                   </td>
+                  <td className="px-2 py-2 text-right font-mono text-xs tabular-nums" title="Latest score, live over WebSocket">
+                    <span className={riskTone(risk[u.actor]?.score ?? -1)}>{risk[u.actor] ? risk[u.actor].score.toFixed(0) : "—"}</span>
+                  </td>
                   <td className="px-4 py-2 text-right">
-                    <span
-                      className={`font-mono text-sm tabular-nums ${
-                        u.peak_risk >= 85 ? "text-red-300" : u.peak_risk >= 60 ? "text-red-400" : u.peak_risk >= 30 ? "text-amber-300" : "text-zinc-500"
-                      }`}
-                    >
+                    <span className={`font-mono text-sm tabular-nums ${riskTone(u.peak_risk)}`}>
                       {u.decisions ? u.peak_risk.toFixed(0) : "—"}
                     </span>
                   </td>
@@ -98,4 +106,12 @@ export function IdentitiesPanel({ refreshKey }: { refreshKey: number }) {
       )}
     </Card>
   );
+}
+
+/** The spec's risk colours: medium yellow, high orange, critical red. */
+function riskTone(score: number): string {
+  if (score >= 80) return "text-red-400";
+  if (score >= 60) return "text-orange-300";
+  if (score >= 30) return "text-amber-300";
+  return "text-zinc-500";
 }

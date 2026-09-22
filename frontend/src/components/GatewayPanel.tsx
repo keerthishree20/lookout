@@ -3,8 +3,9 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api } from "@/lib/api";
 import { humanise } from "@/lib/format";
-import type { Decision, GatewayResult } from "@/lib/types";
+import type { Attachment, Decision, GatewayResult, HeldMessage } from "@/lib/types";
 
+import { ComponentBars } from "./MessageDetail";
 import { ActionChip, BandChip, Button, Card, ClassChip, Empty } from "./ui";
 
 const SENDERS = [
@@ -14,9 +15,21 @@ const SENDERS = [
   ["r.krishnan", "teller"],
   ["l.mathew", "manager"],
   ["n.pillai", "domain admin"],
+  ["k.venkatesh", "analyst"],
 ] as const;
 
-const PRESETS: { label: string; sender: string; count: number; body: string }[] = [
+type Preset = {
+  label: string;
+  sender: string;
+  count: number;
+  body: string;
+  channel?: string;
+  audience?: string;
+  recipient?: string;
+  attachment?: string;
+};
+
+const PRESETS: Preset[] = [
   {
     label: "Phishing blast",
     sender: "m.d'souza",
@@ -36,12 +49,47 @@ const PRESETS: { label: string; sender: string; count: number; body: string }[] 
     body: "Festive cashback offer, claim here: https://bit.ly/3mB-offer",
   },
   {
+    label: "Scam, no link",
+    sender: "s.iyer",
+    count: 1,
+    body: "This is the Meridian fraud team. Please reply with the OTP you just received so we can stop the fraudulent debit.",
+  },
+  {
+    label: "Customer data to Gmail",
+    sender: "k.venkatesh",
+    count: 1,
+    channel: "email",
+    audience: "internal",
+    recipient: "k.venkat.home@gmail.com",
+    body: "Account no 502128842312, Aadhaar 2345 6789 0123, PAN ABCDE1234F, card 4111 1111 1111 1111",
+  },
+  {
+    label: "Disguised attachment",
+    sender: "r.krishnan",
+    count: 40,
+    channel: "email",
+    body: "Please find your updated statement attached.",
+    attachment: "statement.pdf.exe, 180",
+  },
+  {
     label: "Legitimate",
     sender: "p.nair",
     count: 1,
     body: "Hi, your loan documents are ready: https://secure.meridianbank.com/loans",
   },
 ];
+
+/** "name.ext, size KB; other.ext, size" -> attachment metadata. */
+function parseAttachments(text: string): Attachment[] {
+  return text
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const [name, size] = part.split(",").map((x) => x.trim());
+      return { name, size_kb: Number(size) || 0, content_type: "" };
+    });
+}
 
 export function GatewayPanel({
   onDecision,
@@ -55,10 +103,12 @@ export function GatewayPanel({
   const [audience, setAudience] = useState("customer");
   const [channel, setChannel] = useState("sms");
   const [body, setBody] = useState(PRESETS[0].body);
+  const [recipient, setRecipient] = useState("");
+  const [attachments, setAttachments] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<GatewayResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [queue, setQueue] = useState<(Decision & { quarantine_id: string })[]>([]);
+  const [queue, setQueue] = useState<HeldMessage[]>([]);
 
   const loadQueue = useCallback(() => {
     api.quarantine().then(setQueue).catch(() => setQueue([]));
@@ -72,7 +122,15 @@ export function GatewayPanel({
     setBusy(true);
     setError(null);
     try {
-      const r = await api.scanMessage({ sender, channel, recipient_count: count, audience, body });
+      const r = await api.scanMessage({
+        sender,
+        channel,
+        recipient_count: count,
+        audience,
+        body,
+        recipient,
+        attachments: parseAttachments(attachments),
+      });
       setResult(r);
       onDecision(r.decision);
       loadQueue();
@@ -112,6 +170,10 @@ export function GatewayPanel({
                 setSender(p.sender);
                 setCount(p.count);
                 setBody(p.body);
+                setChannel(p.channel ?? "sms");
+                setAudience(p.audience ?? "customer");
+                setRecipient(p.recipient ?? "");
+                setAttachments(p.attachment ?? "");
                 setResult(null);
               }}
               className="rounded-md px-2 py-1 text-xs text-zinc-400 ring-1 ring-inset ring-zinc-700 transition hover:bg-zinc-800 hover:text-zinc-200"
@@ -164,7 +226,28 @@ export function GatewayPanel({
               <option value="sms">SMS</option>
               <option value="email">Email</option>
               <option value="push">Push</option>
+              <option value="notification">Notification</option>
             </select>
+          </label>
+        </div>
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label className="text-xs text-zinc-400">
+            Recipient <span className="text-zinc-600">(address, number or segment)</span>
+            <input
+              value={recipient}
+              onChange={(e) => setRecipient(e.target.value)}
+              placeholder="optional"
+              className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-sm text-zinc-200"
+            />
+          </label>
+          <label className="text-xs text-zinc-400">
+            Attachments <span className="text-zinc-600">(name, KB; …)</span>
+            <input
+              value={attachments}
+              onChange={(e) => setAttachments(e.target.value)}
+              placeholder="e.g. report.xlsx, 9000"
+              className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1.5 font-mono text-sm text-zinc-200"
+            />
           </label>
         </div>
         <label className="mt-3 block text-xs text-zinc-400">
@@ -202,13 +285,16 @@ export function GatewayPanel({
                 </span>
               </div>
               <p className="text-xs leading-relaxed text-zinc-400">{result.decision.narrative}</p>
+              <div className="mt-3">
+                <ComponentBars components={result.message_risk.components} total={result.message_risk.score} />
+              </div>
             </div>
             {result.urls.map((u) => (
               <div key={u.url} className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
                 <div className="flex items-center justify-between gap-2">
                   <code className="truncate text-xs text-zinc-300">{u.url}</code>
-                  <span className={`shrink-0 font-mono text-xs ${u.suspicious ? "text-red-300" : "text-emerald-300"}`}>
-                    {u.suspicious ? "suspicious" : "clean"} · {u.score.toFixed(2)}
+                  <span className={`shrink-0 font-mono text-xs ${u.suspicious ? "text-orange-300" : "text-emerald-300"}`}>
+                    {u.suspicious ? "suspicious" : "clean"} · URL risk {u.risk_score}
                   </span>
                 </div>
                 {u.impersonates && (
@@ -253,7 +339,7 @@ export function GatewayPanel({
                     variant="ghost"
                     className="text-xs"
                     onClick={async () => {
-                      await api.release(q.quarantine_id, "soc.duty-officer");
+                      await api.release(q.quarantine_id);
                       loadQueue();
                     }}
                   >

@@ -2,7 +2,7 @@ import { BrainCircuit, FileWarning, Loader2, Plus, ShieldAlert, UserCheck } from
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
-import { Button, Card, Empty } from "@/components/ui";
+import { Button, Card, Empty, Pagination, SearchBox, usePaged } from "@/components/ui";
 import { useLive } from "@/hooks/useLive";
 import { ApiError, api } from "@/lib/api";
 import { dateTime, humanise } from "@/lib/format";
@@ -20,14 +20,21 @@ const SEVERITY_STYLE: Record<string, string> = {
 export function Incidents() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { version, alerts } = useLive();
+  const { version, alerts, pulse } = useLive();
   const [list, setList] = useState<Incident[]>([]);
   const [creating, setCreating] = useState(false);
+  const [search, setSearch] = useState("");
 
   const load = useCallback(() => {
     api.incidents().then(setList).catch(() => {});
   }, []);
-  useEffect(load, [load, version, alerts.length]);
+  useEffect(load, [load, version, alerts.length, pulse.incidents]);
+
+  const needle = search.trim().toLowerCase();
+  const shown = list.filter(
+    (i) => !needle || `${i.id} ${i.title} ${i.user} ${i.severity} ${i.status} ${i.assigned_to ?? ""}`.toLowerCase().includes(needle),
+  );
+  const paged = usePaged(shown, 8);
 
   return (
     <div className="grid gap-4 xl:grid-cols-5">
@@ -41,12 +48,16 @@ export function Incidents() {
         }
         className="xl:col-span-2"
       >
+        <div className="mb-3">
+          <SearchBox value={search} onChange={setSearch} placeholder="User, severity, status, analyst" />
+        </div>
         {creating && <CreateIncident onDone={(inc) => { setCreating(false); load(); if (inc) navigate(`/incidents/${inc.id}`); }} />}
-        {list.length === 0 ? (
+        {shown.length === 0 ? (
           <Empty>No incidents. High and critical alerts open one automatically, per person.</Empty>
         ) : (
+          <>
           <ul className="space-y-1.5">
-            {list.map((i) => (
+            {paged.items.map((i) => (
               <li key={i.id}>
                 <Link
                   to={`/incidents/${i.id}`}
@@ -68,6 +79,8 @@ export function Incidents() {
               </li>
             ))}
           </ul>
+          <div className="-mx-4 -mb-4 mt-2"><Pagination {...paged} /></div>
+          </>
         )}
       </Card>
       <div className="xl:col-span-3">

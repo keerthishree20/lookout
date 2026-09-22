@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
-import { Card, Empty } from "@/components/ui";
+import { Card, Empty, Pagination, SearchBox, usePaged } from "@/components/ui";
 import { useLive } from "@/hooks/useLive";
 import { api } from "@/lib/api";
 import { dateTime } from "@/lib/format";
@@ -14,6 +14,7 @@ export function Alerts() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [filter, setFilter] = useState<AlertStatus | "">("");
   const [open, setOpen] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     api.alerts(filter || undefined).then(setAlerts).catch(() => {});
@@ -24,10 +25,16 @@ export function Alerts() {
     setAlerts((xs) => xs.map((x) => (x.id === id ? a : x)));
   }
 
+  const needle = search.trim().toLowerCase();
+  const shown = alerts.filter((a) => !needle || `${a.user} ${a.alert_type} ${a.id} ${a.severity}`.toLowerCase().includes(needle));
+  const paged = usePaged(shown, 15);
+
   return (
     <Card
-      title={`Security alerts (${alerts.length})`}
+      title={`Security alerts (${shown.length})`}
       right={
+        <div className="flex flex-wrap items-center gap-2">
+        <SearchBox value={search} onChange={setSearch} placeholder="User, type, id" />
         <select
           value={filter}
           onChange={(e) => setFilter(e.target.value as AlertStatus | "")}
@@ -37,12 +44,14 @@ export function Alerts() {
           <option value="">All statuses</option>
           {STATUSES.map((s) => <option key={s} value={s}>{s.replace("_", " ")}</option>)}
         </select>
+        </div>
       }
     >
-      {alerts.length === 0 ? (
+      {shown.length === 0 ? (
         <Empty>No alerts{filter ? ` with status ${filter}` : ""}. Run a scenario from Simulation.</Empty>
       ) : (
-        <div className="-mx-4 -mb-4 overflow-x-auto">
+        <div className="-mx-4 -mb-4">
+        <div className="overflow-x-auto">
           <table className="w-full min-w-[860px] text-left text-sm">
             <thead className="text-[11px] uppercase tracking-wider text-zinc-500">
               <tr>
@@ -57,7 +66,7 @@ export function Alerts() {
               </tr>
             </thead>
             <tbody>
-              {alerts.map((a) => (
+              {paged.items.map((a) => (
                 <Fragment key={a.id}>
                   <tr
                     onClick={() => setOpen(open === a.id ? null : a.id)}
@@ -110,6 +119,8 @@ export function Alerts() {
               ))}
             </tbody>
           </table>
+        </div>
+        <Pagination {...paged} />
         </div>
       )}
     </Card>

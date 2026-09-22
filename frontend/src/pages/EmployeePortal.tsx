@@ -16,11 +16,15 @@ import {
   Loader2,
   LogOut,
   Search,
+  ShieldCheck,
+  UserRound,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useCallback, useEffect, useState } from "react";
 
 import { AccessRequestsPanel } from "@/components/AccessRequestsPanel";
+import { AdminConsolePanel } from "@/components/AdminConsolePanel";
+import { ProfilePanel } from "@/components/ProfilePanel";
 import { TeamPanel } from "@/components/TeamPanel";
 import { TransferPanel } from "@/components/TransferPanel";
 import { ApiError, api } from "@/lib/api";
@@ -29,6 +33,9 @@ import { clearSession, loadSession, type Profile } from "@/lib/session";
 import type { MaskedCustomer } from "@/lib/types";
 
 const PAGE = 50;
+/** Privileged administrators (privilege level 4+) get the admin console. */
+const PRIVILEGE: Record<string, number> = { teller: 1, officer: 2, analyst: 2, manager: 3, dba: 4, sysadmin: 5, domain_admin: 6 };
+const PRIVILEGED = Object.keys(PRIVILEGE).filter((r) => PRIVILEGE[r] >= 4);
 const QUICK = [10, 25, 50, 100, 250];
 
 interface Download {
@@ -51,7 +58,7 @@ export function EmployeePortal() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [downloads, setDownloads] = useState<Download[]>([]);
-  const [tab, setTab] = useState<"customers" | "transfer" | "access" | "team">("customers");
+  const [tab, setTab] = useState<"customers" | "transfer" | "access" | "team" | "profile" | "admin">("customers");
 
   const expired = useCallback(() => {
     clearSession();
@@ -151,19 +158,21 @@ export function EmployeePortal() {
         </div>
       </header>
 
-      <nav className="mx-auto flex max-w-[1400px] gap-1 border-b border-slate-800 px-4 sm:px-6" aria-label="Sections">
+      <nav className="mx-auto flex max-w-[1400px] gap-1 overflow-x-auto border-b border-slate-800 px-4 sm:px-6" aria-label="Sections">
         {(
           [
             ["customers", "Customers", Users],
             ["transfer", "Fund transfer", ArrowRightLeft],
             ["access", "Access requests", KeyRound],
             ...(profile.role === "manager" ? ([["team", "My team", UsersRound]] as const) : []),
+            ...(PRIVILEGED.includes(profile.role) ? ([["admin", "Admin console", ShieldCheck]] as const) : []),
+            ["profile", "My profile", UserRound],
           ] as const
         ).map(([key, label, Icon]) => (
           <button
             key={key}
             onClick={() => setTab(key)}
-            className={`-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-2.5 text-sm ${
+            className={`-mb-px inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm ${
               tab === key ? "border-emerald-400 text-slate-100" : "border-transparent text-slate-500 hover:text-slate-300"
             }`}
           >
@@ -181,6 +190,16 @@ export function EmployeePortal() {
       {tab === "access" && (
         <main className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6">
           <AccessRequestsPanel onExpired={expired} />
+        </main>
+      )}
+      {tab === "profile" && (
+        <main className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6">
+          <ProfilePanel onExpired={expired} />
+        </main>
+      )}
+      {tab === "admin" && (
+        <main className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6">
+          <AdminConsolePanel myLevel={PRIVILEGE[profile.role] ?? 0} onExpired={expired} />
         </main>
       )}
       {tab === "team" && (

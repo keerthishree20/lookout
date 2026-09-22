@@ -15,7 +15,7 @@ export function Dashboard() {
   const { alerts, stats, version } = useLive();
   const [dash, setDash] = useState<DashboardStats | null>(null);
   const [trend, setTrend] = useState<RiskTrendBucket[]>([]);
-  const [policy, setPolicy] = useState<Pick<Policy, "medium" | "high" | "critical">>({ medium: 30, high: 60, critical: 85 });
+  const [policy, setPolicy] = useState<Pick<Policy, "medium" | "high" | "critical">>({ medium: 30, high: 60, critical: 80 });
 
   useEffect(() => {
     const load = () => {
@@ -36,7 +36,18 @@ export function Dashboard() {
     allowed: b.count - b.flagged,
     flagged: b.flagged,
     peak: b.peak,
+    login_anomalies: b.login_anomalies ?? 0,
+    privilege_escalations: b.privilege_escalations ?? 0,
   }));
+  const outcomes = dash?.message_outcomes;
+  const messageResults = outcomes
+    ? [
+        { name: "Delivered", value: outcomes.delivered },
+        { name: "Verification required", value: outcomes.verification },
+        { name: "Quarantined", value: outcomes.quarantined },
+        { name: "Blocked", value: outcomes.blocked },
+      ]
+    : [];
   const threat = Object.entries(dash?.threat_distribution ?? {}).map(([k, v]) => ({ name: humanise(k), value: v }));
   const bands = BANDS.map((b) => ({ name: b[0].toUpperCase() + b.slice(1), value: dash?.score_distribution[b] ?? 0 }));
   const alertTypes = Object.entries(dash?.alerts_by_type ?? {}).map(([k, v]) => ({ name: k, value: v }));
@@ -94,6 +105,32 @@ export function Dashboard() {
           table={{ columns: ["Class", "Decisions"], rows: threat.map((t) => [t.name, t.value]) }}
         >
           <CategoryBars data={threat} height={180} />
+        </ChartCard>
+        <ChartCard
+          title="Message scanning results"
+          subtitle="Every outbound message the gateway has scored, by outcome"
+          table={{ columns: ["Outcome", "Messages"], rows: messageResults.map((m) => [m.name, m.value]) }}
+        >
+          <CategoryBars
+            data={messageResults}
+            colors={[STATUS.low, STATUS.medium, "#3987e5", STATUS.critical]}
+            height={180}
+          />
+        </ChartCard>
+        <ChartCard
+          title="Login anomalies and privilege escalation attempts"
+          subtitle={`Per interval · ${dash?.login_anomalies ?? 0} flagged sign-ins and ${dash?.privilege_escalation_attempts ?? 0} escalation attempts in total`}
+          table={{
+            columns: ["Interval", "Login anomalies", "Escalation attempts"],
+            rows: series.map((r) => [r.label, r.login_anomalies, r.privilege_escalations]),
+          }}
+        >
+          <StackedTimeBars
+            data={series}
+            keys={["login_anomalies", "privilege_escalations"]}
+            labels={["Login anomalies", "Privilege escalation attempts"]}
+            height={180}
+          />
         </ChartCard>
         <ChartCard
           title="Alerts by type"

@@ -12,11 +12,15 @@ export default defineConfig({
   server: { port: 3000, host: true },
   preview: { port: 3000, host: true },
   build: {
-    // Recharts is the one heavy dependency; keep it out of the main chunk.
+    // Recharts is the one heavy dependency; keep it, and the React runtime,
+    // out of the app chunk so a code change does not re-download either.
     rollupOptions: {
       output: {
-        manualChunks: (id: string) =>
-          id.includes("node_modules/recharts") || id.includes("node_modules/d3-") ? "charts" : undefined,
+        manualChunks: (id: string) => {
+          if (id.includes("node_modules/recharts") || id.includes("node_modules/d3-")) return "charts";
+          if (/node_modules\/(react|react-dom|react-router|scheduler|axios)\//.test(id)) return "vendor";
+          return undefined;
+        },
       },
     },
   },

@@ -15,6 +15,11 @@ export function ScenarioPanel({
   lastPeaks: Record<string, Decision>;
 }) {
   const [running, setRunning] = useState<string | null>(null);
+  // The spec's nine "Simulate ..." buttons first, then the extra scenarios.
+  const ordered = [
+    ...scenarios.filter((s) => s.button.startsWith("Simulate")),
+    ...scenarios.filter((s) => !s.button.startsWith("Simulate")),
+  ];
 
   return (
     <Card title="Inject an incident" icon={<Siren className="h-4 w-4 text-red-400" />}>
@@ -23,14 +28,15 @@ export function ScenarioPanel({
         scoring knows a scenario is running.
       </p>
       <ul className="space-y-2">
-        {scenarios.map((s) => {
+        {ordered.map((s) => {
           const peak = lastPeaks[s.key];
           const busy = running === s.key;
           return (
             <li key={s.key} className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <div className="text-sm font-medium text-zinc-200">{s.title}</div>
+                  <div className="text-sm font-medium text-zinc-200">{s.button}</div>
+                  <div className="text-[11px] text-zinc-500">{s.title}</div>
                   <p className="mt-0.5 text-xs leading-relaxed text-zinc-500">{s.summary}</p>
                 </div>
                 <button

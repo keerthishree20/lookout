@@ -13,17 +13,18 @@ export const BAND_STYLE: Record<Band, { label: string; dot: string; chip: string
     chip: "bg-amber-500/10 text-amber-300 ring-amber-500/30",
     bar: "bg-amber-400",
   },
+  // The spec's risk colours: low green, medium yellow, high orange, critical red.
   high: {
     label: "High",
-    dot: "🔴",
-    chip: "bg-red-500/10 text-red-300 ring-red-500/40",
-    bar: "bg-red-500",
+    dot: "🟠",
+    chip: "bg-orange-500/10 text-orange-300 ring-orange-500/40",
+    bar: "bg-orange-500",
   },
   critical: {
     label: "Critical",
-    dot: "⚫",
-    chip: "bg-zinc-950 text-red-200 ring-red-500/70",
-    bar: "bg-gradient-to-r from-red-600 to-fuchsia-600",
+    dot: "🔴",
+    chip: "bg-red-600/15 text-red-200 ring-red-500/70",
+    bar: "bg-red-600",
   },
 };
 

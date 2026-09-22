@@ -10,6 +10,8 @@ import type { AccessRequest, Policy } from "@/lib/types";
 
 /** Thresholds and limits the whole engine reads live. Super Admin edits;
  *  everyone else on the console can read. Every change is audited. */
+const ROLE_LEVEL: Record<string, number> = { teller: 1, officer: 2, analyst: 2, manager: 3, dba: 4, sysadmin: 5, domain_admin: 6 };
+
 export function SecurityPolicies() {
   const { version } = useLive();
   const isAdmin = loadSession()?.kind === "superadmin";
@@ -100,6 +102,61 @@ export function SecurityPolicies() {
               />
             </label>
           ))}
+        </div>
+      </Card>
+
+      <Card title="Communication policy" right={!isAdmin && <span className="text-[11px] text-zinc-500">read-only</span>} className="xl:col-span-2">
+        <p className="mb-4 text-xs leading-relaxed text-zinc-500">
+          Who may send customer-facing messages at all, and who may run bulk campaigns. A send from a role without the
+          mandate is scored as unauthorised communication; privileged administrators can be required to pass a second
+          factor for every customer message. Privileged administrators can also edit these roles from their portal.
+        </p>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[420px] text-left text-sm">
+            <thead className="text-[11px] uppercase tracking-wider text-zinc-500">
+              <tr>
+                <th className="py-1.5 font-medium">Role</th>
+                <th className="py-1.5 font-medium">Customer messages</th>
+                <th className="py-1.5 font-medium">Bulk campaigns</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.keys(ROLE_LEVEL).map((role) => (
+                <tr key={role} className="border-t border-zinc-800/70">
+                  <td className="py-1.5 text-zinc-300">{humanise(role)}</td>
+                  {(["customer_comms_roles", "bulk_comms_roles"] as const).map((k) => (
+                    <td key={k} className="py-1.5">
+                      <input
+                        type="checkbox"
+                        aria-label={`${role} ${k}`}
+                        disabled={!isAdmin}
+                        checked={draft[k].includes(role)}
+                        onChange={() =>
+                          set(k, draft[k].includes(role) ? draft[k].filter((r) => r !== role) : [...draft[k], role].sort())
+                        }
+                      />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-6 text-sm text-zinc-300">
+          <label className="flex items-center gap-2">
+            Bulk threshold
+            <input type="number" min={2} className={num} disabled={!isAdmin} value={draft.bulk_threshold} onChange={(e) => set("bulk_threshold", Number(e.target.value))} />
+            <span className="text-xs text-zinc-500">recipients</span>
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              disabled={!isAdmin}
+              checked={draft.privileged_comms_step_up}
+              onChange={(e) => set("privileged_comms_step_up", e.target.checked)}
+            />
+            Privileged administrators need MFA to message customers
+          </label>
         </div>
       </Card>
 

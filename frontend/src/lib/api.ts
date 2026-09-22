@@ -6,7 +6,10 @@ import type {
   AccessRequest,
   AccountRow,
   AccountView,
+  AdminUserRow,
   Alert,
+  Artefact,
+  Attachment,
   AuditListing,
   CryptoStatus,
   CustomerPage,
@@ -17,15 +20,22 @@ import type {
   Evaluation,
   GatewayResult,
   Health,
+  HeldMessage,
   HoneypotListing,
   Identity,
   Incident,
   IncidentDetail,
+  LoginRisk,
+  MessageRow,
+  MfaChallenge,
   MlMetrics,
+  MyProfile,
   Policy,
   Receipt,
   RiskExplanation,
   RiskTrendBucket,
+  RoleRow,
+  RuntimeConfig,
   Scenario,
   ScenarioRun,
   SealResult,
@@ -85,6 +95,16 @@ const get = <T>(path: string) => request<T>(path);
 const post = <T>(path: string, data?: unknown) => request<T>(path, { method: "POST", data });
 const put = <T>(path: string, data?: unknown) => request<T>(path, { method: "PUT", data });
 
+/** Sign-in context for the demo: where, on what and when the sign-in claims to come from. */
+export interface SignInContext {
+  device_id?: string;
+  city?: string;
+  ip?: string;
+  at_hour?: number;
+}
+
+export type LoginResult = (StoredSession & { risk?: LoginRisk }) | MfaChallenge;
+
 const q = encodeURIComponent;
 
 export const api = {
@@ -98,11 +118,26 @@ export const api = {
   runScenario: (key: string) => post<ScenarioRun>(`/api/scenarios/${q(key)}/run`),
   traffic: (mode: "pause" | "resume") => post<{ traffic_paused: boolean }>(`/api/traffic/${mode}`),
   reset: () => post<Stats>("/api/reset"),
-  scanMessage: (body: { sender: string; channel: string; recipient_count: number; audience: string; body: string }) =>
-    post<GatewayResult>("/api/messages/scan", body),
+  scanMessage: (body: {
+    sender: string;
+    channel: string;
+    recipient_count: number;
+    audience: string;
+    body: string;
+    subject?: string;
+    recipient?: string;
+    attachments?: Attachment[];
+  }) => post<GatewayResult>("/api/messages/scan", body),
+  messages: (status = "", search = "") =>
+    get<MessageRow[]>(`/api/messages?limit=1000${status ? `&status=${q(status)}` : ""}${search ? `&q=${q(search)}` : ""}`),
+  message: (id: string) => get<MessageRow>(`/api/messages/${q(id)}`),
   inspectUrl: (url: string) => post<UrlVerdict>("/api/urls/inspect", { url }),
-  quarantine: () => get<(Decision & { quarantine_id: string })[]>("/api/quarantine"),
-  release: (qid: string, reviewer: string) => post<{ released: string }>(`/api/quarantine/${qid}/release`, { reviewer }),
+  quarantine: () => get<HeldMessage[]>("/api/quarantine"),
+  release: (qid: string) => post<{ released: string }>(`/api/quarantine/${q(qid)}/release`, {}),
+  blockHeld: (qid: string) => post<{ blocked: string }>(`/api/quarantine/${q(qid)}/block`),
+  deleteHeld: (qid: string) => post<{ deleted: string }>(`/api/quarantine/${q(qid)}/delete`),
+  investigateHeld: (qid: string) =>
+    post<{ investigating: string; incident_id: string }>(`/api/quarantine/${q(qid)}/investigate`),
   users: () => get<Identity[]>("/api/users"),
   userRisk: (actor: string) => get<UserRisk>(`/api/users/${q(actor)}/risk`),
   userActivity: (actor: string, limit = 50) => get<Decision[]>(`/api/users/${q(actor)}/activity?limit=${limit}`),
@@ -110,6 +145,14 @@ export const api = {
   verify: () => get<Verification>("/api/audit/verify"),
   tamper: (seq: number) => post<{ tampered: number; verify: Verification }>(`/api/audit/tamper/${seq}`),
   seal: (name: string, secret: string) => post<SealResult>("/api/credentials/seal", { name, secret }),
+  artefacts: () => get<{ artefacts: Artefact[]; algorithm: string; quantum_safe: boolean }>("/api/crypto/artefacts"),
+  verifyArtefacts: () =>
+    post<{ ok: boolean; results: { name: string; ok: boolean; reason: string }[]; alert?: Alert }>(
+      "/api/crypto/artefacts/verify",
+    ),
+  tamperArtefact: (name: string) => post<{ tampered: string }>(`/api/crypto/artefacts/tamper?name=${q(name)}`),
+  auditLogs: (limit = 500, action = "") =>
+    get<AuditListing>(`/api/audit-logs?limit=${limit}${action ? `&action=${q(action)}` : ""}`),
   evaluation: (refresh = false) => get<Evaluation>(`/api/evaluation?refresh=${refresh}`),
   explanation: (eventId: string) => get<RiskExplanation>(`/api/risk/${q(eventId)}/explanation`),
   mlMetrics: () => get<MlMetrics>("/api/ml/metrics"),
@@ -143,9 +186,21 @@ export const api = {
   adminRequests: () => get<AccessRequest[]>("/api/admin/access-requests"),
   adminDecide: (id: string, approve: boolean, note = "") =>
     post<AccessRequest>(`/api/admin/access-requests/${q(id)}/decide`, { approve, note }),
+  roles: () =>
+    get<{ roles: RoleRow[]; resource_min_level: Record<string, number>; overrides: Record<string, string> }>(
+      "/api/admin/roles",
+    ),
+  updateRoles: (resource_min_level: Record<string, number>) =>
+    put<{ changed: Record<string, { from: number; to: number }> }>("/api/admin/roles", { resource_min_level }),
+  config: () => get<RuntimeConfig>("/api/admin/config"),
+  updateConfig: (body: Partial<RuntimeConfig>) =>
+    put<{ config: RuntimeConfig; changed: Record<string, unknown> }>("/api/admin/config", body),
 
   // auth
-  login: (username: string, password: string) => post<StoredSession>("/api/auth/login", { username, password }),
+  login: (username: string, password: string, context: SignInContext = {}) =>
+    post<LoginResult>("/api/auth/login", { username, password, ...context }),
+  verifyMfa: (challenge_id: string, otp: string) =>
+    post<StoredSession & { risk?: LoginRisk }>("/api/auth/mfa/verify", { challenge_id, otp }),
   logout: () => post<{ ok: boolean }>("/api/auth/logout"),
   me: () => get<{ kind: StoredSession["kind"]; profile: StoredSession["profile"] }>("/api/auth/me"),
   demoAccounts: () => get<DemoAccount[]>("/api/auth/demo-accounts"),
@@ -184,6 +239,29 @@ export const api = {
   myAccessRequests: () =>
     get<{ requestable: Record<string, string>; requests: AccessRequest[] }>("/api/portal/access-requests"),
   requestAccess: (resource: string, reason: string) => post<AccessRequest>("/api/portal/access-requests", { resource, reason }),
+  myProfile: () => get<MyProfile>("/api/portal/me"),
+  myActivity: () => get<{ ts: string; activity: string; resource: string }[]>("/api/portal/activity"),
+  myResources: () => get<{ resource: string; min_level: number; in_role: boolean }[]>("/api/portal/resources"),
+  openResource: (resource: string, otp?: string) =>
+    post<{ decision: string; access?: string; monitoring?: string; reason?: string; demo_otp?: string }>(
+      `/api/portal/resources/${q(resource)}/open`,
+      otp ? { otp } : {},
+    ),
+
+  // privileged administrator (employee portal)
+  adminUsers: () => get<AdminUserRow[]>("/api/portal/admin/users"),
+  adminDisable: (u: string, reason: string) =>
+    post<{ disabled: string; monitored: { risk: number; action: string } }>(`/api/portal/admin/users/${q(u)}/disable`, { reason }),
+  adminEnable: (u: string) =>
+    post<{ enabled: string; monitored: { risk: number; action: string } }>(`/api/portal/admin/users/${q(u)}/enable`),
+  adminRole: (u: string, role: string) =>
+    post<{ from: string; to: string; monitored: { risk: number; action: string } }>(`/api/portal/admin/users/${q(u)}/role`, { role }),
+  adminCommsPolicy: () =>
+    get<Pick<Policy, "customer_comms_roles" | "bulk_comms_roles" | "bulk_threshold" | "privileged_comms_step_up">>(
+      "/api/portal/admin/comms-policy",
+    ),
+  adminPutCommsPolicy: (body: Partial<Pick<Policy, "customer_comms_roles" | "bulk_comms_roles" | "bulk_threshold">>) =>
+    put<{ changed: Record<string, unknown>; monitored: { risk: number; action: string } }>("/api/portal/admin/comms-policy", body),
 
   // manager
   team: () => get<TeamOverview>("/api/team/overview"),

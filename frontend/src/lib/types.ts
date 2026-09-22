@@ -32,13 +32,21 @@ export interface Geo {
   lon: number;
 }
 
+export interface Attachment {
+  name: string;
+  size_kb: number;
+  content_type: string;
+}
+
 export interface MessagePayload {
   channel: string;
   recipient_count: number;
   audience: string;
+  recipient?: string;
   subject: string;
   body: string;
   urls: string[];
+  attachments?: Attachment[];
 }
 
 export interface LookoutEvent {
@@ -129,6 +137,8 @@ export interface Health {
 export interface Scenario {
   key: string;
   title: string;
+  /** The demo button, in the spec's words ("Simulate Impossible Travel"). */
+  button: string;
   summary: string;
   covers: string[];
 }
@@ -143,17 +153,130 @@ export interface UrlVerdict {
   url: string;
   host: string;
   score: number;
+  /** The same score on 0-100. */
+  risk_score: number;
   suspicious: boolean;
   findings: string[];
   impersonates: string | null;
+  features?: Record<string, number | boolean | string>;
 }
+
+export type MessageComponents = Record<
+  "url" | "sender_behaviour" | "content" | "destination" | "privilege" | "volume",
+  number
+>;
 
 export interface GatewayResult {
   delivered: boolean;
   held: boolean;
   requires_step_up: boolean;
   urls: UrlVerdict[];
+  message_risk: { score: number; level: string; components: MessageComponents };
   decision: Decision;
+}
+
+export type MessageStatus = "DELIVERED" | "VERIFICATION_REQUIRED" | "QUARANTINED" | "BLOCKED";
+
+export interface MessageRow {
+  message_id: string;
+  quarantine_id: string | null;
+  sender: string;
+  sender_role: string;
+  recipient: string;
+  recipient_count: number;
+  channel: string;
+  subject: string;
+  body: string;
+  attachments: Attachment[];
+  timestamp: string;
+  status: MessageStatus;
+  risk_score: number;
+  risk_level: string;
+  reasons: string[];
+  urls: UrlVerdict[];
+  classification: string;
+  components: MessageComponents;
+}
+
+export interface HeldMessage extends Decision {
+  quarantine_id: string;
+  review: { status: string; by?: string; incident_id?: string };
+  message: MessageRow;
+}
+
+export interface CryptoLayer {
+  protects: string;
+  algorithm: string;
+  family: string;
+  note: string;
+}
+
+export interface Artefact {
+  name: string;
+  category: string;
+  description: string;
+  algorithm: string;
+  plaintext_bytes: number;
+  ciphertext_bytes: number;
+  kem_ciphertext_bytes: number;
+  sha256_prefix: string;
+  sealed_at: string;
+  last_check: string;
+}
+
+export interface LoginRisk {
+  risk_score: number;
+  risk_level: string;
+  reason: string[];
+  action: string;
+}
+
+export interface MfaChallenge {
+  mfa_required: true;
+  challenge_id: string;
+  factor: string;
+  demo_otp: string;
+  risk: LoginRisk;
+}
+
+export interface RoleRow {
+  role: string;
+  privilege_level: number;
+  privileged_administrator: boolean;
+  members: string[];
+  resources: string[];
+  customer_messaging: boolean;
+  bulk_messaging: boolean;
+  transfer_limit: number | null;
+}
+
+export interface RuntimeConfig {
+  live_traffic: boolean;
+  traffic_interval: number;
+  show_demo_accounts: boolean;
+  allow_tamper_demo: boolean;
+  login_mfa: boolean;
+}
+
+export interface MyProfile {
+  username: string;
+  email: string;
+  role: string;
+  privilege_level: number;
+  privileged_administrator: boolean;
+  city: string;
+  device: string;
+  working_hours: string;
+  may_message_customers: boolean;
+}
+
+export interface AdminUserRow {
+  username: string;
+  role: string;
+  roster_role: string;
+  privilege_level: number;
+  city: string;
+  status: string;
 }
 
 export interface CryptoStatus {
@@ -171,6 +294,7 @@ export interface CryptoStatus {
     public_key_bytes: number;
   };
   fully_quantum_safe: boolean;
+  layers?: CryptoLayer[];
 }
 
 export interface AuditEntry {
@@ -443,6 +567,9 @@ export interface DashboardStats {
   threat_distribution: Record<string, number>;
   score_distribution: Record<string, number>;
   alerts_by_type: Record<string, number>;
+  message_outcomes: Record<"delivered" | "verification" | "quarantined" | "blocked", number>;
+  login_anomalies: number;
+  privilege_escalation_attempts: number;
 }
 
 export interface RiskTrendBucket {
@@ -451,6 +578,9 @@ export interface RiskTrendBucket {
   flagged: number;
   mean: number;
   peak: number;
+  login_anomalies: number;
+  privilege_escalations: number;
+  messages_held: number;
 }
 
 export type AlertStatus = "OPEN" | "INVESTIGATING" | "RESOLVED" | "FALSE_POSITIVE";
@@ -563,6 +693,10 @@ export interface Policy {
   critical: number;
   honeypot_export_threshold: number;
   transfer_limits: Record<string, number>;
+  customer_comms_roles: string[];
+  bulk_comms_roles: string[];
+  bulk_threshold: number;
+  privileged_comms_step_up: boolean;
 }
 
 export interface UserRisk {
@@ -577,6 +711,20 @@ export interface UserRisk {
   locations: Record<string, number>;
   resources: Record<string, number>;
   messages: number;
+  message_activity: MessageRow[];
+  sessions: {
+    session_id: string;
+    start: string;
+    end: string;
+    device: string;
+    ip: string;
+    city: string;
+    events: number;
+    peak_risk: number;
+    ended: string;
+  }[];
+  daily_risk: { day: string; peak_risk: number }[];
+  sudden_changes: { ts: string; from: number; to: number; event_id: string; action: string; why: string }[];
   alerts: Alert[];
 }
 

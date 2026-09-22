@@ -14,7 +14,7 @@ export function UserDetail() {
   const { version } = useLive();
   const [data, setData] = useState<UserRisk | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [policy, setPolicy] = useState<Pick<Policy, "medium" | "high" | "critical">>({ medium: 30, high: 60, critical: 85 });
+  const [policy, setPolicy] = useState<Pick<Policy, "medium" | "high" | "critical">>({ medium: 30, high: 60, critical: 80 });
 
   useEffect(() => {
     setError(null);
@@ -76,6 +76,86 @@ export function UserDetail() {
         />
       </ChartCard>
 
+      {data.sudden_changes.length > 0 && (
+        <Card title={`Sudden behavioural changes (${data.sudden_changes.length})`} className="border-orange-500/40">
+          <ul className="space-y-2 text-xs">
+            {[...data.sudden_changes].reverse().map((c) => (
+              <li key={c.event_id} className="rounded-md bg-orange-500/5 p-2 ring-1 ring-inset ring-orange-500/30">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono text-orange-200">
+                    {c.from.toFixed(0)} → {c.to.toFixed(0)}
+                  </span>
+                  <span className="text-zinc-300">{humanise(c.action)}</span>
+                  <span className="ml-auto font-mono text-zinc-500">{dateTime(c.ts)}</span>
+                </div>
+                {c.why && <p className="mt-1 text-zinc-400">{c.why}</p>}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card title="Peak risk by day">
+          {data.daily_risk.length === 0 ? (
+            <p className="text-sm text-zinc-500">No scored activity yet.</p>
+          ) : (
+            <table className="w-full text-left text-xs">
+              <tbody>
+                {data.daily_risk.map((d, i) => {
+                  const prev = data.daily_risk[i - 1]?.peak_risk ?? 0;
+                  const jumped = d.peak_risk - prev >= 30;
+                  return (
+                    <tr key={d.day} className="border-t border-zinc-800/60">
+                      <td className="py-1 text-zinc-400">Day {i + 1}</td>
+                      <td className="py-1 font-mono text-zinc-500">{d.day}</td>
+                      <td className={`py-1 text-right font-mono ${jumped ? "font-semibold text-orange-300" : "text-zinc-300"}`}>
+                        {d.peak_risk.toFixed(0)}
+                        {jumped ? " ▲" : ""}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </Card>
+        <Card title="Session history" className="lg:col-span-2">
+          {data.sessions.length === 0 ? (
+            <p className="text-sm text-zinc-500">No sessions scored yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[560px] text-left text-xs">
+                <thead className="text-zinc-500">
+                  <tr>
+                    <th className="pb-1 font-medium">Started</th>
+                    <th className="pb-1 font-medium">Device</th>
+                    <th className="pb-1 font-medium">IP · city</th>
+                    <th className="pb-1 text-right font-medium">Events</th>
+                    <th className="pb-1 text-right font-medium">Peak</th>
+                    <th className="pb-1 text-right font-medium">Ended</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.sessions.map((x) => (
+                    <tr key={x.session_id} className="border-t border-zinc-800/60">
+                      <td className="py-1 font-mono text-zinc-400">{dateTime(x.start)}</td>
+                      <td className="py-1 font-mono text-zinc-300">{x.device}</td>
+                      <td className="py-1 text-zinc-400">
+                        {x.ip} · {x.city}
+                      </td>
+                      <td className="py-1 text-right font-mono text-zinc-400">{x.events}</td>
+                      <td className="py-1 text-right font-mono text-zinc-200">{x.peak_risk.toFixed(0)}</td>
+                      <td className={`py-1 text-right ${x.ended === "revoked" ? "text-red-300" : "text-zinc-500"}`}>{x.ended}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      </div>
+
       <div className="grid gap-4 lg:grid-cols-3">
         <Card title="Login history">
           {data.logins.length === 0 ? (
@@ -101,6 +181,24 @@ export function UserDetail() {
           <Tally title="Resource" data={data.resources} />
         </Card>
       </div>
+
+      <Card title={`Message activity (${data.messages})`}>
+        {data.message_activity.length === 0 ? (
+          <p className="text-sm text-zinc-500">No messages sent.</p>
+        ) : (
+          <ul className="space-y-1.5 text-xs">
+            {data.message_activity.map((m) => (
+              <li key={m.message_id} className="flex flex-wrap items-center gap-2 border-b border-zinc-800/60 pb-1.5">
+                <span className="font-mono text-zinc-500">{dateTime(m.timestamp)}</span>
+                <span className="uppercase text-zinc-400">{m.channel}</span>
+                <span className="text-zinc-300">{m.recipient}</span>
+                <span className="font-mono text-zinc-400">risk {m.risk_score.toFixed(0)}</span>
+                <span className="ml-auto text-zinc-500">{humanise(m.status.toLowerCase())}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
 
       <Card title={`Alerts (${data.alerts.length})`}>
         {data.alerts.length === 0 ? (

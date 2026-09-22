@@ -2,10 +2,22 @@ import { Binoculars, KeyRound, Loader2, LogIn, ShieldCheck, UserRound } from "lu
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 
-import { API_URL, ApiError, api } from "@/lib/api";
+import { API_URL, ApiError, api, type SignInContext } from "@/lib/api";
 import { humanise } from "@/lib/format";
-import { saveSession } from "@/lib/session";
-import type { DemoAccount } from "@/lib/types";
+import { saveSession, type StoredSession } from "@/lib/session";
+import type { DemoAccount, MfaChallenge } from "@/lib/types";
+
+/** Demo presets for where a sign-in claims to come from (the portal is on the
+ *  intranet, so by default it is the employee's own desk). */
+const CONTEXTS: { label: string; ctx: SignInContext }[] = [
+  { label: "Usual desk (normal)", ctx: {} },
+  { label: "New laptop at 02:30", ctx: { at_hour: 2, device_id: "LT-NEW-4410", ip: "203.0.113.9" } },
+  {
+    label: "02:30, new device, new country, unknown IP",
+    ctx: { at_hour: 2, device_id: "LT-UNKNOWN-7731", city: "Singapore", ip: "203.0.113.77" },
+  },
+  { label: "Signing in from New York", ctx: { city: "New York", ip: "198.51.100.23" } },
+];
 
 export function Login() {
   const navigate = useNavigate();
@@ -14,6 +26,14 @@ export function Login() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<DemoAccount[]>([]);
+  const [preset, setPreset] = useState(0);
+  const [mfa, setMfa] = useState<MfaChallenge | null>(null);
+  const [otp, setOtp] = useState("");
+
+  function enter(s: StoredSession) {
+    saveSession(s);
+    navigate(s.kind === "employee" ? "/employee" : "/dashboard", { replace: true });
+  }
 
   useEffect(() => {
     api.demoAccounts().then(setAccounts).catch(() => setError(`Cannot reach the Lookout API at ${API_URL}.`));
@@ -23,9 +43,13 @@ export function Login() {
     setBusy(true);
     setError(null);
     try {
-      const s = await api.login(u.trim(), p);
-      saveSession(s);
-      navigate(s.kind === "employee" ? "/employee" : "/dashboard", { replace: true });
+      const r = await api.login(u.trim(), p, CONTEXTS[preset].ctx);
+      if ("mfa_required" in r) {
+        setMfa(r);
+        setOtp("");
+      } else {
+        enter(r);
+      }
     } catch (e) {
       setError(
         e instanceof ApiError
@@ -63,7 +87,7 @@ export function Login() {
           }}
         >
           <label className="block text-xs text-zinc-400">
-            Username
+            Username or work email
             <input
               value={username}
               onChange={(e) => setUsername(e.target.value)}
@@ -81,6 +105,20 @@ export function Login() {
               className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
             />
           </label>
+          <label className="block text-xs text-zinc-400">
+            Sign-in context <span className="text-zinc-600">(simulation)</span>
+            <select
+              value={preset}
+              onChange={(e) => setPreset(Number(e.target.value))}
+              className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
+            >
+              {CONTEXTS.map((c, i) => (
+                <option key={c.label} value={i}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </label>
           {error && <p className="text-sm text-red-400">{error}</p>}
           <button
             type="submit"
@@ -91,10 +129,59 @@ export function Login() {
             Sign in
           </button>
           <p className="text-xs leading-relaxed text-zinc-500">
-            Every sign-in, including a wrong password, is scored by Lookout. Repeated failures on one account
-            trip the password-guessing detector.
+            Every sign-in, including a wrong password, is scored by Lookout: time, device, IP, location, failed
+            attempts, privilege and impossible travel. A medium-risk sign-in asks for a one-time code.
           </p>
         </form>
+
+        {mfa && (
+          <form
+            className="mt-4 space-y-3 rounded-xl border border-amber-500/40 bg-amber-500/5 p-5"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setBusy(true);
+              setError(null);
+              try {
+                enter(await api.verifyMfa(mfa.challenge_id, otp));
+              } catch (err) {
+                setError(err instanceof ApiError ? err.detail : "Verification failed.");
+                if (err instanceof ApiError && /again/.test(err.detail)) setMfa(null);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-amber-200">
+              <ShieldCheck className="h-4 w-4" /> Additional verification required
+            </h2>
+            <p className="text-xs text-zinc-400">
+              This sign-in looks unusual ({mfa.risk.risk_level.toLowerCase()} risk), so a second factor is needed.
+            </p>
+            <ul className="list-disc space-y-0.5 pl-4 text-xs text-zinc-400">
+              {mfa.risk.reason.slice(0, 3).map((r) => (
+                <li key={r}>{r}</li>
+              ))}
+            </ul>
+            <p className="rounded-md bg-zinc-950 px-3 py-2 text-xs text-zinc-400">
+              Simulated {humanise(mfa.factor)}: your code is <span className="font-mono text-amber-200">{mfa.demo_otp}</span>
+            </p>
+            <input
+              value={otp}
+              onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              inputMode="numeric"
+              aria-label="One-time code"
+              placeholder="6-digit code"
+              className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-sm tracking-widest text-zinc-100"
+            />
+            <button
+              type="submit"
+              disabled={busy || otp.length !== 6}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-50"
+            >
+              Verify and sign in
+            </button>
+          </form>
+        )}
       </div>
 
       <div className="rounded-xl border border-zinc-800 bg-zinc-900/60">
