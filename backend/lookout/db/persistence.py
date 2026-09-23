@@ -117,7 +117,9 @@ class Persistence:
             # unreachable server doesn't hang start-up.
             import os
 
-            timeout = int(os.getenv("LOOKOUT_DB_CONNECT_TIMEOUT", "10"))
+            # 20 s: a sleeping Neon/Supabase free compute took ~17 s to wake
+            # in testing. Still short enough that a dead host doesn't hang start-up.
+            timeout = int(os.getenv("LOOKOUT_DB_CONNECT_TIMEOUT", "20"))
             kwargs["connect_args"] = {"connect_timeout": timeout}
         self.engine = create_engine(self.url, **kwargs)
         self.Session = sessionmaker(self.engine, expire_on_commit=False)
