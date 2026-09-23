@@ -30,6 +30,7 @@ import type {
   MfaChallenge,
   MlMetrics,
   MyProfile,
+  NotifyStatus,
   Policy,
   Receipt,
   RiskExplanation,
@@ -169,6 +170,15 @@ export const api = {
   incidentStatus: (id: string, status: string) => post<Incident>(`/api/incidents/${q(id)}/status`, { status }),
   incidentAction: (id: string, action: string, reason = "incident response") =>
     post<Incident>(`/api/incidents/${q(id)}/actions`, { action, reason }),
+  /** The incident as a PDF an auditor can read. */
+  incidentReport: async (id: string) => {
+    const res = await http.get<Blob>(`/api/incidents/${q(id)}/report`, { responseType: "blob" });
+    const disposition = String(res.headers["content-disposition"] ?? "");
+    return {
+      blob: res.data,
+      filename: /filename="([^"]+)"/.exec(disposition)?.[1] ?? `incident_${id}.pdf`,
+    };
+  },
   sessions: () => get<SessionRow[]>("/api/sessions"),
   revokeSession: (id: string) => post<{ revoked: string }>(`/api/sessions/${q(id)}/revoke`),
   accounts: () => get<AccountRow[]>("/api/accounts"),
@@ -192,6 +202,10 @@ export const api = {
     ),
   updateRoles: (resource_min_level: Record<string, number>) =>
     put<{ changed: Record<string, { from: number; to: number }> }>("/api/admin/roles", { resource_min_level }),
+  notifications: () => get<NotifyStatus>("/api/admin/notifications"),
+  updateNotifications: (body: Record<string, unknown>) => put<NotifyStatus>("/api/admin/notifications", body),
+  testNotification: () =>
+    post<{ results: { channel: string; ok: boolean; detail: string }[] }>("/api/admin/notifications/test"),
   config: () => get<RuntimeConfig>("/api/admin/config"),
   updateConfig: (body: Partial<RuntimeConfig>) =>
     put<{ config: RuntimeConfig; changed: Record<string, unknown> }>("/api/admin/config", body),

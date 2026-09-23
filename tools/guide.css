@@ -1,0 +1,101 @@
+/* Print styling for the Lookout project guide. */
+
+@page { size: A4; margin: 20mm 16mm 18mm 16mm; }
+
+html { font-size: 10.5pt; }
+
+body {
+  font-family: "Georgia", "Times New Roman", serif;
+  color: #16181d;
+  line-height: 1.55;
+  max-width: none;
+  margin: 0;
+  hyphens: auto;
+}
+
+/* --- cover ---------------------------------------------------------- */
+.cover { page-break-after: always; padding-top: 38mm; text-align: center; }
+.cover .eyebrow {
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  letter-spacing: .22em; text-transform: uppercase;
+  font-size: 9pt; color: #6b7280;
+}
+.cover h1 {
+  font-size: 30pt; line-height: 1.15; margin: 10mm 0 4mm; border: 0; color: #0f172a;
+}
+.cover .subtitle { font-size: 13pt; color: #374151; margin: 0 auto 14mm; max-width: 130mm; }
+.cover .rule { width: 34mm; height: 2px; background: #0ea5e9; margin: 0 auto 12mm; }
+.cover dl {
+  font-family: "Helvetica Neue", Arial, sans-serif; font-size: 10pt;
+  display: grid; grid-template-columns: auto auto; gap: 2.5mm 6mm;
+  justify-content: center; text-align: left; margin: 0 0 12mm;
+}
+.cover dt { color: #6b7280; }
+.cover dd { margin: 0; color: #111827; }
+.cover .note {
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  font-size: 8.5pt; color: #6b7280; max-width: 120mm; margin: 0 auto; line-height: 1.5;
+}
+
+/* --- headings -------------------------------------------------------- */
+h1, h2, h3, h4 {
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  color: #0f172a; line-height: 1.25; page-break-after: avoid;
+}
+h1 { font-size: 19pt; margin: 0 0 6mm; }
+body > h2 {
+  font-size: 14.5pt; margin: 10mm 0 3mm; padding-bottom: 2mm;
+  border-bottom: 1.5px solid #0ea5e9; page-break-before: always;
+}
+h3 { font-size: 11.5pt; margin: 6mm 0 2mm; }
+h4 { font-size: 10.5pt; margin: 5mm 0 2mm; color: #334155; }
+p { margin: 0 0 3.2mm; }
+
+/* --- table of contents ------------------------------------------------ */
+#TOC { page-break-after: always; font-family: "Helvetica Neue", Arial, sans-serif; }
+#TOC > ul { list-style: none; padding-left: 0; columns: 1; }
+#TOC ul ul { display: none; }
+#TOC li { margin: 0 0 2.2mm; font-size: 10.5pt; }
+#TOC a { color: #0f172a; text-decoration: none; }
+
+/* --- text elements ---------------------------------------------------- */
+a { color: #0369a1; text-decoration: none; word-break: break-word; }
+strong { color: #0f172a; }
+ul, ol { margin: 0 0 3.5mm; padding-left: 6mm; }
+li { margin: 0 0 1.2mm; }
+
+blockquote {
+  margin: 0 0 4mm; padding: 2.5mm 4mm; border-left: 3px solid #cbd5e1;
+  background: #f8fafc; color: #334155; font-style: normal;
+}
+
+code {
+  font-family: "DejaVu Sans Mono", "Menlo", monospace;
+  font-size: 8.6pt; background: #f1f5f9; padding: 0.3mm 1mm;
+  border-radius: 2px; color: #0f172a;
+}
+
+pre {
+  font-family: "DejaVu Sans Mono", "Menlo", monospace;
+  background: #0f172a; color: #e2e8f0;
+  padding: 3mm 4mm; border-radius: 3px; font-size: 8pt; line-height: 1.45;
+  overflow-wrap: break-word; white-space: pre-wrap;
+  page-break-inside: avoid; margin: 0 0 4mm;
+}
+pre code { background: none; color: inherit; font-size: inherit; padding: 0; }
+/* pandoc's highlighting, adjusted for a dark block */
+pre .kw { color: #7dd3fc; } pre .dt { color: #a5b4fc; }
+pre .st, pre .ch { color: #86efac; } pre .co { color: #94a3b8; font-style: italic; }
+pre .dv, pre .fl { color: #fbbf24; } pre .fu { color: #f0abfc; }
+
+table {
+  border-collapse: collapse; width: 100%; margin: 0 0 4.5mm;
+  font-family: "Helvetica Neue", Arial, sans-serif; font-size: 8.8pt;
+  page-break-inside: avoid;
+}
+th, td { border: 0.5px solid #cbd5e1; padding: 1.6mm 2.2mm; text-align: left; vertical-align: top; }
+th { background: #f1f5f9; color: #0f172a; font-weight: 600; }
+tr:nth-child(even) td { background: #fafafa; }
+
+hr { border: 0; border-top: 0.5px solid #e2e8f0; margin: 6mm 0; }
+img { max-width: 100%; }

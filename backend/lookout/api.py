@@ -52,7 +52,9 @@ from .models import PRIVILEGE_LEVEL, Action, ActionTaken, Attachment, Band, Deci
 from .narrator import Narrator
 from .pipeline import Engine
 from .policy import POLICY, PolicyError
+from .notify import NotifySettings, Notifier
 from .pq_vault import CRYPTO_LAYERS, ProtectedStore
+from .reporting import incident_report, report_filename
 from .runtime import CONFIG, ROLE_OVERRIDES
 from .portal import (
     MAX_EXPORT,
@@ -95,6 +97,8 @@ class AppState:
         #: Post-quantum protected store (credentials, config, key material).
         self.vault = ProtectedStore(self.engine.sealer)
         self._seed_vault()
+        #: Sends CRITICAL alerts out of the app (chat webhook, email).
+        self.notifier = get_notifier()
         self.engine.listeners.append(self._honeypot_trigger)
         self.engine.listeners.append(self._raise_alert)
         self.engine.listeners.append(self._broadcast_changes)
@@ -151,6 +155,7 @@ class AppState:
         self.engine.audit.append("integrity.alert", {"alert": alert.id, "description": description}, critical=True)
         self.engine.broadcast_extra("alert", alert.as_dict())
         self.engine.broadcast_extra("incident", self.incidents.incidents[alert.incident_id].as_dict(full=False))
+        self.notifier.on_alert(alert)
         db = get_db()
         if db is not None:
             db.upsert_alert(alert)
@@ -164,6 +169,7 @@ class AppState:
             self.engine.broadcast_extra(
                 "incident", self.incidents.incidents[alert.incident_id].as_dict(full=False)
             )
+            self.notifier.on_alert(alert)
             db = get_db()
             if db is not None:
                 db.upsert_alert(alert)
@@ -245,6 +251,15 @@ def _audit_seed() -> bytes:
 state: AppState | None = None
 #: Outside AppState on purpose: a demo reset must not sign everyone out.
 auth: AuthStore | None = None
+#: Likewise for the notifier: one worker thread per process, not per reset.
+_notifier: Notifier | None = None
+
+
+def get_notifier() -> Notifier:
+    global _notifier
+    if _notifier is None:
+        _notifier = Notifier()
+    return _notifier
 _classifier: ThreatClassifier | None = None
 _db: Persistence | None = None
 _db_loaded = False

@@ -54,7 +54,7 @@ Who may call what is decided by path prefix in one middleware (`ROUTE_ACCESS` in
 | Users | `GET /api/users`, `/api/users/{actor}`, `/api/users/{actor}/risk`, `/api/users/{actor}/activity` |
 | Accounts and sessions | `GET /api/accounts`, `POST /api/accounts/{u}/disable` / `enable`, `GET /api/sessions`, `POST /api/sessions/{id}/revoke` |
 | Alerts | `GET /api/alerts`, `/api/alerts/{id}`, `POST /api/alerts/{id}/status` |
-| Incidents | `GET/POST /api/incidents`, `GET /api/incidents/{id}`, `POST .../assign`, `.../notes`, `.../status`, `.../actions` |
+| Incidents | `GET/POST /api/incidents`, `GET /api/incidents/{id}`, `POST .../assign`, `.../notes`, `.../status`, `.../actions`, `GET /api/incidents/{id}/report` (PDF for an auditor; the export is audited) |
 | Honeypot | `GET /api/honeypots`, `GET /api/honeypots/trace?q=`, `POST /api/honeypots/watchlist/{actor}/clear` |
 | Access control | `POST /api/access/check` (risk-based decision for a resource), `GET /api/policy` |
 | Audit and crypto | `GET /api/audit`, `GET /api/audit-logs?action=`, `/api/audit/verify` (a failure raises a quantum-safe alert), `GET /api/crypto/artefacts`, `POST /api/crypto/artefacts/verify`, `POST /api/crypto/artefacts/tamper?name=` (demo), `POST /api/audit/tamper/{seq}` (demo; `LOOKOUT_ALLOW_TAMPER=0` disables), `GET /api/crypto`, `POST /api/credentials/seal` |
@@ -68,6 +68,8 @@ Who may call what is decided by path prefix in one middleware (`ROUTE_ACCESS` in
 | GET/PUT | `/api/admin/policies` | risk bands, honeypot export threshold, transfer limits, communication policy |
 | GET/PUT | `/api/admin/roles` | every role, its members and reach; the minimum privilege for each protected system |
 | GET/PUT | `/api/admin/config` | system configuration: demo traffic, sign-in MFA, demo accounts on the sign-in page, tamper demos |
+| GET/PUT | `/api/admin/notifications` | where critical alerts are sent (webhook, Telegram, Brevo email), severity floor and flood limits; secrets are redacted in the response |
+| POST | `/api/admin/notifications/test` | send a test alert now and report what each channel answered |
 | GET | `/api/admin/access-requests` · POST `/api/admin/access-requests/{id}/decide` | final approval |
 
 ## Example

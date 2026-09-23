@@ -738,3 +738,33 @@ export type DbStatus =
       rows: Record<string, number>;
       audit_chain: { ok: boolean; rows: number; broken_at: number | null };
     };
+
+export interface NotifyDelivery {
+  ts: string;
+  channel: string;
+  alert_id: string;
+  ok: boolean;
+  detail: string;
+}
+
+export interface NotifySettings {
+  enabled: boolean;
+  webhook_url: string;
+  telegram_chat_id: string;
+  email_to: string;
+  email_from: string;
+  /** "set" or "" — the key itself is never sent to the browser. */
+  brevo_api_key: string;
+  min_severity: string;
+  max_per_hour: number;
+  cooldown_seconds: number;
+  channels: string[];
+}
+
+export interface NotifyStatus {
+  settings: NotifySettings;
+  active: boolean;
+  sent_last_hour: number;
+  skipped: number;
+  recent: NotifyDelivery[];
+}

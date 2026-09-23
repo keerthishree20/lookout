@@ -22,14 +22,19 @@ from __future__ import annotations
 import secrets
 from typing import Any
 
+from datetime import datetime, timezone
+
 from fastapi import Depends, HTTPException, Query, Request
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from . import api as A
 from .auth import Session
 from .generator import BY_ACTOR, ROSTER
 from .models import BULK_COMMS_ROLES, CUSTOMER_COMMS_ROLES, PRIVILEGE_LEVEL, TRANSFER_LIMITS, Action, Role
+from .notify import NotifySettings
 from .policy import POLICY, PolicyError
+from .reporting import incident_report, report_filename
 from .runtime import CONFIG, ROLE_OVERRIDES
 from .runtime import update as update_config
 
@@ -549,3 +554,94 @@ def put_config(body: dict[str, Any], request: Request) -> dict[str, Any]:
     changed = {k: {"from": before[k], "to": after[k]} for k in after if before[k] != after[k]}
     A.get_state().engine.audit.append("config.changed", {"by": by, "changes": changed}, critical=True)
     return {"config": after, "changed": changed}
+
+
+# --------------------------------------------------------------------------- #
+# Incident reports (PDF)
+# --------------------------------------------------------------------------- #
+
+
+@app.get("/api/incidents/{incident_id}/report")
+def incident_pdf(incident_id: str, request: Request) -> Response:
+    """The incident as a PDF an auditor can read: summary, alerts, evidence
+    with the reasons behind each score, timeline, actions and notes. Only what
+    the system recorded goes in it, and downloading one is itself audited."""
+    s = A.get_state()
+    inc = s.incidents.incidents.get(incident_id)
+    if inc is None:
+        raise HTTPException(404, "no such incident")
+    by = _signed_in(request)
+    generated = datetime.now(timezone.utc)
+    alerts = [s.incidents.alerts[a] for a in inc.alert_ids if a in s.incidents.alerts]
+    evidence = set(inc.evidence)
+    decisions = [d for d in s.engine.decisions if d.event.event_id in evidence]
+    pdf = incident_report(
+        inc,
+        alerts=alerts,
+        decisions=decisions,
+        signing=s.engine.signer.algorithm,
+        prepared_by=by,
+        generated=generated,
+    )
+    s.engine.audit.append(
+        "incident.report_exported",
+        {"incident": inc.id, "by": by, "alerts": len(alerts), "evidence": len(decisions)},
+    )
+    inc.log("report", f"Report exported by {by}.")
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{report_filename(inc, generated)}"'},
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Alert notifications (Super Admin)
+# --------------------------------------------------------------------------- #
+
+
+class NotifyUpdate(BaseModel):
+    enabled: bool | None = None
+    webhook_url: str | None = Field(None, max_length=500)
+    telegram_chat_id: str | None = Field(None, max_length=64)
+    email_to: str | None = Field(None, max_length=200)
+    email_from: str | None = Field(None, max_length=200)
+    brevo_api_key: str | None = Field(None, max_length=200)
+    min_severity: str | None = Field(None, pattern="^(HIGH|CRITICAL)$")
+    max_per_hour: int | None = Field(None, ge=1, le=500)
+    cooldown_seconds: int | None = Field(None, ge=0, le=86_400)
+
+
+@app.get("/api/admin/notifications")
+def notifications() -> dict[str, Any]:
+    """Where critical alerts are sent, and how recent deliveries went.
+    Secrets are redacted."""
+    return A.get_notifier().status()
+
+
+@app.put("/api/admin/notifications")
+def put_notifications(body: NotifyUpdate, request: Request) -> dict[str, Any]:
+    notifier = A.get_notifier()
+    changes = body.model_dump(exclude_none=True)
+    current = notifier.settings.as_dict(redact=False)
+    unchanged_secret = {k: v for k, v in changes.items() if k in ("webhook_url", "brevo_api_key") and v == ""}
+    merged = {**{k: v for k, v in current.items() if k in NotifySettings.__dataclass_fields__}, **changes}
+    notifier.settings = NotifySettings(**merged)
+    A.get_state().engine.audit.append(
+        "notifications.changed",
+        {"by": _signed_in(request), "fields": sorted(set(changes) - set(unchanged_secret)),
+         "channels": notifier.settings.channels()},
+        critical=True,
+    )
+    return notifier.status()
+
+
+@app.post("/api/admin/notifications/test")
+def test_notification(request: Request) -> dict[str, Any]:
+    """Send a test alert now and report what each channel answered."""
+    notifier = A.get_notifier()
+    if not notifier.settings.channels():
+        raise HTTPException(400, "no channel configured: set a webhook URL, or an email address with a Brevo key")
+    results = [d.as_dict() for d in notifier.send_test()]
+    A.get_state().engine.audit.append("notifications.test", {"by": _signed_in(request), "results": results})
+    return {"results": results, "status": notifier.status()}

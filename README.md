@@ -160,6 +160,21 @@ To demo it: sign in as `a.fernandes`, open **Fund transfer**, and send ₹10,000
 Meridian customer" (real). Then send ₹4,80,000 to "Outside account (ICICI)" (fake). In a second
 tab, sign in as `soc.analyst` and open **Honeypot**.
 
+## Beyond the spec
+
+Two features the brief doesn't ask for, because a real SOC needs them:
+
+- **Incident reports.** "Download report" on any incident produces a PDF for an auditor: summary,
+  alerts, the evidence with the reason behind every score, the timeline, actions taken and analyst
+  notes, plus how to verify it against the signed audit log. Exporting one is itself audited.
+- **Alert notifications.** Critical alerts can be pushed to a chat webhook (Slack, Discord, Google
+  Chat, Teams, a Telegram bot) and to an email address through Brevo, so they reach a phone rather
+  than only an open browser tab. Sending runs off the detection path: it never blocks a decision,
+  a failed delivery is recorded rather than raised, and it is capped (20 an hour by default, with a
+  5-minute cooldown per person and alert type). Configure it under **Settings → Alert
+  notifications**, or with `ALERT_WEBHOOK_URL`, `ALERT_EMAIL_TO`, `ALERT_EMAIL_FROM` and
+  `BREVO_API_KEY`. With nothing set it is simply off.
+
 ## Spec coverage
 
 Every section of the project specification (39 sections plus the honeypot requirement) is listed,
@@ -295,6 +310,8 @@ backend/lookout/
   portal.py        employee portal, honeypot ledger, decoy PDFs
   banking.py       real and shadow ledgers
   incidents.py     alerts and incidents
+  reporting.py     incident reports as PDF
+  notify.py        critical alerts to a chat webhook or email, off the hot path
   auth.py          accounts, JWT sessions, rate limiting
   crypto.py        ML-DSA / ML-KEM with Ed25519 / X25519 fallback
   audit.py         hash chain + signed checkpoints

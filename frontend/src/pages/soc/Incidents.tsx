@@ -1,4 +1,4 @@
-import { BrainCircuit, FileWarning, Loader2, Plus, ShieldAlert, UserCheck } from "lucide-react";
+import { BrainCircuit, FileDown, FileWarning, Loader2, Plus, ShieldAlert, UserCheck } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
@@ -201,6 +201,26 @@ function IncidentView({ id, onChange }: { id: string; onChange: () => void }) {
           </Button>
           <Button variant="ghost" className="text-xs" disabled={busy !== null} onClick={() => act("resolve", () => api.incidentStatus(inc.id, "RESOLVED"))}>
             Resolve
+          </Button>
+          <Button
+            variant="primary"
+            className="text-xs"
+            title="A PDF of this incident: summary, alerts, evidence, timeline, actions and notes"
+            disabled={busy !== null}
+            onClick={() =>
+              act("report", async () => {
+                const { blob, filename } = await api.incidentReport(inc.id);
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = filename;
+                a.click();
+                URL.revokeObjectURL(url);
+                return inc;
+              })
+            }
+          >
+            <FileDown className="h-3.5 w-3.5" /> Download report
           </Button>
           {busy && <Loader2 className="h-4 w-4 animate-spin text-zinc-500" />}
         </div>

@@ -88,6 +88,14 @@ key), synthetic vault credentials, a snapshot of the detection policy, and the a
 artefact. A failure, or a failed audit verification, raises a "Quantum-Safe Key/Artefact Security
 Event" alert through `IncidentBook.system_alert`.
 
+## Alerts out of the app
+
+`notify.py` delivers CRITICAL alerts to a chat webhook and/or Brevo email. It hangs off the same
+alert listener as the live feed, but everything happens on a worker thread: the engine queues a
+message and returns. A failed delivery is recorded in the notifier's history, never raised. Flood
+control caps the rate and repeats the same person-and-type only after a cooldown. `reporting.py`
+renders an incident as a PDF from the same records.
+
 ## Honeypot
 
 `portal.py` holds the `HoneypotLedger`. Once an employee is watchlisted:

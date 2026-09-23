@@ -1,12 +1,12 @@
-import { Cog, Database, Lock, ShieldCheck, UserCog } from "lucide-react";
+import { BellRing, Cog, Database, Lock, ShieldCheck, UserCog } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { Button, Card } from "@/components/ui";
 import { useLive } from "@/hooks/useLive";
 import { ApiError, api } from "@/lib/api";
-import { humanise } from "@/lib/format";
+import { dateTime, humanise } from "@/lib/format";
 import { loadSession } from "@/lib/session";
-import type { AccountRow, CryptoStatus, DbStatus, RoleRow, RuntimeConfig } from "@/lib/types";
+import type { AccountRow, CryptoStatus, DbStatus, NotifyStatus, RoleRow, RuntimeConfig } from "@/lib/types";
 
 export function Settings() {
   const { version } = useLive();
@@ -120,6 +120,7 @@ export function Settings() {
       {loadSession()?.kind === "superadmin" && (
         <>
           <RolesCard />
+          <NotificationsCard />
           <SystemConfigCard />
         </>
       )}
@@ -261,6 +262,154 @@ function SystemConfigCard() {
         </Button>
         {msg && <span className="text-xs text-zinc-400">{msg}</span>}
       </div>
+    </Card>
+  );
+}
+
+/** Super Admin: where critical alerts go outside the console. */
+function NotificationsCard() {
+  const [status, setStatus] = useState<NotifyStatus | null>(null);
+  const [draft, setDraft] = useState<Record<string, string | number>>({});
+  const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(() => {
+    api.notifications().then(setStatus).catch(() => {});
+  }, []);
+  useEffect(load, [load]);
+  if (!status) return null;
+
+  const s = status.settings;
+  const field = (key: keyof typeof s, value: string | number) => setDraft((d) => ({ ...d, [key]: value }));
+  const value = (key: keyof typeof s) => (draft[key] ?? s[key]) as string | number;
+
+  /** A step reports its own outcome by returning a string; otherwise `label`. */
+  async function run(label: string, fn: () => Promise<string | void>) {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const said = await fn();
+      setMsg(said || label);
+      setDraft({});
+      load();
+    } catch (e) {
+      setMsg(e instanceof ApiError ? e.detail : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card
+      title="Alert notifications"
+      icon={<BellRing className="h-4 w-4 text-red-400" />}
+      className="xl:col-span-3"
+      right={
+        <span className={`text-xs ${status.active ? "text-emerald-300" : "text-zinc-500"}`}>
+          {status.active ? `on · ${s.channels.join(", ")}` : "off · nothing configured"}
+        </span>
+      }
+    >
+      <p className="mb-4 text-xs leading-relaxed text-zinc-500">
+        An alert nobody sees is not a control. Critical alerts can be pushed to a chat webhook (Slack, Discord,
+        Google Chat, Teams or a Telegram bot) and to an email address through Brevo, so they reach a phone rather
+        than only an open browser tab. Sending happens off the detection path: a failure is recorded, never raised,
+        and delivery is capped at {s.max_per_hour}/hour with a {Math.round(s.cooldown_seconds / 60)} minute cooldown
+        per person and alert type. Secrets are never sent back to this page.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="text-xs text-zinc-400">
+          Webhook URL <span className="text-zinc-600">(blank to turn off)</span>
+          <input
+            value={String(draft.webhook_url ?? "")}
+            placeholder={s.webhook_url || "https://hooks.slack.com/services/…"}
+            onChange={(e) => field("webhook_url", e.target.value)}
+            className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-sm text-zinc-100"
+          />
+        </label>
+        <label className="text-xs text-zinc-400">
+          Telegram chat id <span className="text-zinc-600">(only for a Telegram bot URL)</span>
+          <input
+            value={String(value("telegram_chat_id"))}
+            onChange={(e) => field("telegram_chat_id", e.target.value)}
+            className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-sm text-zinc-100"
+          />
+        </label>
+        <label className="text-xs text-zinc-400">
+          Email alerts to
+          <input
+            value={String(value("email_to"))}
+            placeholder="soc@example.com"
+            onChange={(e) => field("email_to", e.target.value)}
+            className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-sm text-zinc-100"
+          />
+        </label>
+        <label className="text-xs text-zinc-400">
+          Verified sender <span className="text-zinc-600">(Brevo)</span>
+          <input
+            value={String(value("email_from"))}
+            onChange={(e) => field("email_from", e.target.value)}
+            className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-sm text-zinc-100"
+          />
+        </label>
+        <label className="text-xs text-zinc-400">
+          Brevo API key <span className="text-zinc-600">{s.brevo_api_key ? "(stored; blank keeps it)" : ""}</span>
+          <input
+            type="password"
+            value={String(draft.brevo_api_key ?? "")}
+            onChange={(e) => field("brevo_api_key", e.target.value)}
+            className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-sm text-zinc-100"
+          />
+        </label>
+        <label className="text-xs text-zinc-400">
+          Send alerts at or above
+          <select
+            value={String(value("min_severity"))}
+            onChange={(e) => field("min_severity", e.target.value)}
+            className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-sm text-zinc-100"
+          >
+            <option value="CRITICAL">Critical only</option>
+            <option value="HIGH">High and critical</option>
+          </select>
+        </label>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <Button variant="primary" disabled={busy} onClick={() => run("Saved and audited.", async () => {
+          await api.updateNotifications(draft);
+        })}>
+          Save
+        </Button>
+        <Button
+          disabled={busy || !status.active}
+          title={status.active ? "Send a test alert now" : "Configure a channel first"}
+          onClick={() =>
+            run("Test sent.", async () => {
+              const r = await api.testNotification();
+              return r.results.map((x) => `${x.channel}: ${x.ok ? "delivered" : x.detail}`).join(" · ");
+            })
+          }
+        >
+          Send test alert
+        </Button>
+        {msg && <span className="text-xs text-zinc-400">{msg}</span>}
+      </div>
+      {status.recent.length > 0 && (
+        <div className="mt-4">
+          <h3 className="mb-1 text-[11px] font-medium uppercase tracking-wider text-zinc-500">
+            Recent deliveries · {status.sent_last_hour} sent in the last hour, {status.skipped} held back
+          </h3>
+          <ul className="space-y-1 text-xs">
+            {status.recent.map((d, i) => (
+              <li key={i} className="flex flex-wrap gap-2">
+                <span className="font-mono text-zinc-500">{dateTime(d.ts)}</span>
+                <span className="text-zinc-300">{d.channel}</span>
+                <span className="font-mono text-zinc-500">{d.alert_id}</span>
+                <span className={d.ok ? "text-emerald-300" : "text-red-300"}>{d.ok ? "delivered" : d.detail}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </Card>
   );
 }
