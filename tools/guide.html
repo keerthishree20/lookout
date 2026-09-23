@@ -1,0 +1,1250 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Lookout - Complete Project Guide</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        background-color: #ffffff;
+        color: #a0a0a0;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #a0a0a0;  padding-left: 4px; }
+    div.sourceCode
+      { color: #1f1c1b; background-color: #ffffff; }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span { color: #1f1c1b; } /* Normal */
+    code span.al { color: #bf0303; background-color: #f7e6e6; font-weight: bold; } /* Alert */
+    code span.an { color: #ca60ca; } /* Annotation */
+    code span.at { color: #0057ae; } /* Attribute */
+    code span.bn { color: #b08000; } /* BaseN */
+    code span.bu { color: #644a9b; font-weight: bold; } /* BuiltIn */
+    code span.cf { color: #1f1c1b; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #924c9d; } /* Char */
+    code span.cn { color: #aa5500; } /* Constant */
+    code span.co { color: #898887; } /* Comment */
+    code span.cv { color: #0095ff; } /* CommentVar */
+    code span.do { color: #607880; } /* Documentation */
+    code span.dt { color: #0057ae; } /* DataType */
+    code span.dv { color: #b08000; } /* DecVal */
+    code span.er { color: #bf0303; text-decoration: underline; } /* Error */
+    code span.ex { color: #0095ff; font-weight: bold; } /* Extension */
+    code span.fl { color: #b08000; } /* Float */
+    code span.fu { color: #644a9b; } /* Function */
+    code span.im { color: #ff5500; } /* Import */
+    code span.in { color: #b08000; } /* Information */
+    code span.kw { color: #1f1c1b; font-weight: bold; } /* Keyword */
+    code span.op { color: #1f1c1b; } /* Operator */
+    code span.ot { color: #006e28; } /* Other */
+    code span.pp { color: #006e28; } /* Preprocessor */
+    code span.re { color: #0057ae; background-color: #e0e9f8; } /* RegionMarker */
+    code span.sc { color: #3daee9; } /* SpecialChar */
+    code span.ss { color: #ff5500; } /* SpecialString */
+    code span.st { color: #bf0303; } /* String */
+    code span.va { color: #0057ae; } /* Variable */
+    code span.vs { color: #bf0303; } /* VerbatimString */
+    code span.wa { color: #bf0303; } /* Warning */
+  </style>
+  <link rel="stylesheet" href="/home/harikishan/KEERTHISHREE/dev/lookout/tools/guide.css" />
+<style>/* Print styling for the Lookout project guide. */
+
+@page { size: A4; margin: 20mm 16mm 18mm 16mm; }
+
+html { font-size: 10.5pt; }
+
+body {
+  font-family: "Georgia", "Times New Roman", serif;
+  color: #16181d;
+  line-height: 1.55;
+  max-width: none;
+  margin: 0;
+  hyphens: auto;
+}
+
+/* --- cover ---------------------------------------------------------- */
+.cover { page-break-after: always; padding-top: 38mm; text-align: center; }
+.cover .eyebrow {
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  letter-spacing: .22em; text-transform: uppercase;
+  font-size: 9pt; color: #6b7280;
+}
+.cover h1 {
+  font-size: 30pt; line-height: 1.15; margin: 10mm 0 4mm; border: 0; color: #0f172a;
+}
+.cover .subtitle { font-size: 13pt; color: #374151; margin: 0 auto 14mm; max-width: 130mm; }
+.cover .rule { width: 34mm; height: 2px; background: #0ea5e9; margin: 0 auto 12mm; }
+.cover dl {
+  font-family: "Helvetica Neue", Arial, sans-serif; font-size: 10pt;
+  display: grid; grid-template-columns: auto auto; gap: 2.5mm 6mm;
+  justify-content: center; text-align: left; margin: 0 0 12mm;
+}
+.cover dt { color: #6b7280; }
+.cover dd { margin: 0; color: #111827; }
+.cover .note {
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  font-size: 8.5pt; color: #6b7280; max-width: 120mm; margin: 0 auto; line-height: 1.5;
+}
+
+/* --- headings -------------------------------------------------------- */
+h1, h2, h3, h4 {
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  color: #0f172a; line-height: 1.25; page-break-after: avoid;
+}
+h1 { font-size: 19pt; margin: 0 0 6mm; }
+body > h2 {
+  font-size: 14.5pt; margin: 10mm 0 3mm; padding-bottom: 2mm;
+  border-bottom: 1.5px solid #0ea5e9; page-break-before: always;
+}
+h3 { font-size: 11.5pt; margin: 6mm 0 2mm; }
+h4 { font-size: 10.5pt; margin: 5mm 0 2mm; color: #334155; }
+p { margin: 0 0 3.2mm; }
+
+/* --- table of contents ------------------------------------------------ */
+#TOC { page-break-after: always; font-family: "Helvetica Neue", Arial, sans-serif; }
+#TOC > ul { list-style: none; padding-left: 0; columns: 1; }
+#TOC ul ul { display: none; }
+#TOC li { margin: 0 0 2.2mm; font-size: 10.5pt; }
+#TOC a { color: #0f172a; text-decoration: none; }
+
+/* --- text elements ---------------------------------------------------- */
+a { color: #0369a1; text-decoration: none; word-break: break-word; }
+strong { color: #0f172a; }
+ul, ol { margin: 0 0 3.5mm; padding-left: 6mm; }
+li { margin: 0 0 1.2mm; }
+
+blockquote {
+  margin: 0 0 4mm; padding: 2.5mm 4mm; border-left: 3px solid #cbd5e1;
+  background: #f8fafc; color: #334155; font-style: normal;
+}
+
+code {
+  font-family: "DejaVu Sans Mono", "Menlo", monospace;
+  font-size: 8.6pt; background: #f1f5f9; padding: 0.3mm 1mm;
+  border-radius: 2px; color: #0f172a;
+}
+
+pre {
+  font-family: "DejaVu Sans Mono", "Menlo", monospace;
+  background: #0f172a; color: #e2e8f0;
+  padding: 3mm 4mm; border-radius: 3px; font-size: 8pt; line-height: 1.45;
+  overflow-wrap: break-word; white-space: pre-wrap;
+  page-break-inside: avoid; margin: 0 0 4mm;
+}
+pre code { background: none; color: inherit; font-size: inherit; padding: 0; }
+/* pandoc's highlighting, adjusted for a dark block */
+pre .kw { color: #7dd3fc; } pre .dt { color: #a5b4fc; }
+pre .st, pre .ch { color: #86efac; } pre .co { color: #94a3b8; font-style: italic; }
+pre .dv, pre .fl { color: #fbbf24; } pre .fu { color: #f0abfc; }
+
+table {
+  border-collapse: collapse; width: 100%; margin: 0 0 4.5mm;
+  font-family: "Helvetica Neue", Arial, sans-serif; font-size: 8.8pt;
+  page-break-inside: avoid;
+}
+th, td { border: 0.5px solid #cbd5e1; padding: 1.6mm 2.2mm; text-align: left; vertical-align: top; }
+th { background: #f1f5f9; color: #0f172a; font-weight: 600; }
+tr:nth-child(even) td { background: #fafafa; }
+
+hr { border: 0; border-top: 0.5px solid #e2e8f0; margin: 6mm 0; }
+img { max-width: 100%; }
+</style></head>
+<body>
+
+<div class="cover">
+  <div class="eyebrow">Final year project &middot; Complete guide</div>
+  <h1>Lookout</h1>
+  <div class="rule"></div>
+  <p class="subtitle">AI-powered privileged access misuse and insider threat detection
+  for banking, with real-time communication security, a honeypot, and quantum-safe protection.</p>
+  <dl>
+    <dt>Author</dt><dd>KeerthiShree TS</dd>
+    <dt>College</dt><dd>SNS College of Technology</dd>
+    <dt>Live demo</dt><dd>https://lookout-9erd.onrender.com</dd>
+    <dt>Source code</dt><dd>github.com/keerthishree20/lookout</dd>
+    <dt>Date</dt><dd>23 September 2026</dd>
+  </dl>
+  <p class="note">This guide is self-contained: it explains what the system does, how every part
+  works, and why it was built this way, with the real code. All data, employees, customers and
+  money in the system are simulated; every measured number in this document comes from that
+  synthetic data.</p>
+</div>
+<header id="title-block-header">
+
+</header>
+<nav id="TOC" role="doc-toc"><h1>Contents</h1>
+<ul>
+<li><a href="#overview">1. Overview</a></li>
+<li><a href="#tech-stack-why">2. Tech Stack &amp; Why</a></li>
+<li><a href="#setup-from-scratch">3. Setup from Scratch</a></li>
+<li><a href="#the-event-model">4. The Event Model</a></li>
+<li><a href="#behavioural-baselines">5. Behavioural Baselines</a></li>
+<li><a href="#the-detectors">6. The Detectors</a></li>
+<li><a href="#the-behavioural-model-isolationforest">7. The Behavioural Model (IsolationForest)</a></li>
+<li><a href="#risk-fusion-bands-and-the-graded-response">8. Risk Fusion, Bands and the Graded Response</a></li>
+<li><a href="#insider-threat-classification">9. Insider Threat Classification</a></li>
+<li><a href="#session-monitoring-and-containment">10. Session Monitoring and Containment</a></li>
+<li><a href="#the-outbound-message-gateway">11. The Outbound Message Gateway</a></li>
+<li><a href="#quantum-safe-cryptography">12. Quantum-Safe Cryptography</a></li>
+<li><a href="#the-tamper-evident-audit-log">13. The Tamper-Evident Audit Log</a></li>
+<li><a href="#the-narrator-explainability-in-prose">14. The Narrator (Explainability in Prose)</a></li>
+<li><a href="#synthetic-data-and-evaluation">15. Synthetic Data and Evaluation</a></li>
+<li><a href="#roles-sign-in-and-sessions">16. Roles, Sign-in and Sessions</a></li>
+<li><a href="#the-employee-portal-and-the-honeypot">17. The Employee Portal and the Honeypot</a></li>
+<li><a href="#the-supervised-classifier-and-shap">18. The Supervised Classifier and SHAP</a></li>
+<li><a href="#the-database">19. The Database</a></li>
+<li><a href="#the-api">20. The API</a></li>
+<li><a href="#the-frontend">21. The Frontend</a></li>
+<li><a href="#docker-and-ci">22. Docker and CI</a></li>
+<li><a href="#beyond-the-spec-reports-and-notifications">23. Beyond the Spec: Reports and Notifications</a></li>
+<li><a href="#configuration-troubleshooting">24. Configuration &amp; Troubleshooting</a></li>
+<li><a href="#complete-feature-summary">25. Complete Feature Summary</a></li>
+</ul>
+</nav>
+<h2 id="overview">1. Overview</h2>
+<p>Banks already guard the front door against outsiders. Insiders are harder: employees, contractors and administrators hold legitimate credentials, and their misuse looks like work. A teller whose password was phished, an analyst copying the customer table at 2 a.m., a loans officer granting themselves domain admin, a compromised account texting 50,000 customers a fake KYC link all arrive with valid credentials.</p>
+<p>Lookout watches every action by every identity and asks one question: <strong>is this normal for this person, given what they are allowed to do?</strong> It answers with a score from 0 to 100, the sentences that justify the score, and a proportionate response:</p>
+<table>
+<thead>
+<tr class="header">
+<th>Band</th>
+<th>Score</th>
+<th>Response</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>🟢 Low</td>
+<td>0–29</td>
+<td>Allow and log</td>
+</tr>
+<tr class="even">
+<td>🟡 Medium</td>
+<td>30–59</td>
+<td>Demand a second factor (risk-based authentication)</td>
+</tr>
+<tr class="odd">
+<td>🟠 High</td>
+<td>60–79</td>
+<td>Block (messages: quarantine for review)</td>
+</tr>
+<tr class="even">
+<td>🔴 Critical</td>
+<td>80–100</td>
+<td>Block, revoke the session, page the SOC</td>
+</tr>
+</tbody>
+</table>
+<p>These are the specification's bands and colours. The critical band started at 85 in the first version and moved to 80 to match the spec. The Super Admin can move all three thresholds at runtime.</p>
+<p>Every decision goes into an audit log that is hash-chained and signed with a post-quantum signature scheme, so nobody can quietly rewrite it later, and the signatures will still hold once quantum computers can break today's schemes.</p>
+<hr />
+<h2 id="tech-stack-why">2. Tech Stack &amp; Why</h2>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Layer</th>
+<th>Choice</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>API</td>
+<td>FastAPI</td>
+<td>Typed request models via Pydantic, WebSocket and SSE support, docs at <code>/swagger</code> and <code>/redoc</code></td>
+</tr>
+<tr class="even">
+<td>Live feed</td>
+<td>WebSocket (<code>/api/ws</code>), with SSE kept as a fallback</td>
+<td>One connection carries decisions, stats and alerts to every console page</td>
+</tr>
+<tr class="odd">
+<td>Models</td>
+<td>Pydantic v2</td>
+<td>One definition validates API input <em>and</em> serialises decisions</td>
+</tr>
+<tr class="even">
+<td>Anomaly detection</td>
+<td>scikit-learn IsolationForest</td>
+<td>Unsupervised, trains only on benign data, no labels needed</td>
+</tr>
+<tr class="odd">
+<td>Classification</td>
+<td>scikit-learn RandomForest + SHAP</td>
+<td>A supervised second opinion whose every prediction can be explained</td>
+</tr>
+<tr class="even">
+<td>Database</td>
+<td>PostgreSQL 16, SQLAlchemy 2, psycopg 3</td>
+<td>A durable record of every decision; SQLite works for tests</td>
+</tr>
+<tr class="odd">
+<td>Auth</td>
+<td>PBKDF2 + PyJWT (HS256) + server-side session registry</td>
+<td>Tokens that stop working the moment the engine blocks someone</td>
+</tr>
+<tr class="even">
+<td>Signatures</td>
+<td><code>dilithium-py</code> (ML-DSA-65, FIPS 204)</td>
+<td>A real NIST standard, pure Python, no compiler or liboqs build</td>
+</tr>
+<tr class="odd">
+<td>Key encapsulation</td>
+<td><code>kyber-py</code> (ML-KEM-768, FIPS 203)</td>
+<td>Same reasons; paired with AES-256-GCM from <code>cryptography</code></td>
+</tr>
+<tr class="even">
+<td>PDFs</td>
+<td>fpdf2</td>
+<td>Genuine and decoy exports come from the same renderer, so they can't be told apart</td>
+</tr>
+<tr class="odd">
+<td>Narrator</td>
+<td>Gemini over HTTPS (optional)</td>
+<td>Prose summaries; a deterministic template is the default</td>
+</tr>
+<tr class="even">
+<td>Frontend</td>
+<td>React 19 + Vite + React Router 7 + Tailwind 4 + Recharts + Axios</td>
+<td>A multi-page console that builds to static files nginx can serve</td>
+</tr>
+<tr class="odd">
+<td>Deployment</td>
+<td>Docker Compose + nginx</td>
+<td>One command starts the database, API and site</td>
+</tr>
+<tr class="even">
+<td>Tests</td>
+<td>pytest (310) + Playwright browser checks</td>
+<td>Unit, pipeline, API, roles, database, ML and a detection-quality floor</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="setup-from-scratch">3. Setup from Scratch</h2>
+<p>The quickest way is Docker:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true"></a><span class="fu">git</span> clone https://github.com/keerthishree20/lookout</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true"></a><span class="bu">cd</span> lookout</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true"></a><span class="fu">cp</span> .env.example .env       # fill in JWT_SECRET, POST_QUANTUM_KEY, POSTGRES_PASSWORD</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true"></a><span class="ex">docker</span> compose up -d --build</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true"></a><span class="co"># open http://localhost:3000</span></span></code></pre></div>
+<p>Without Docker:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true"></a><span class="bu">cd</span> lookout/backend</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true"></a><span class="ex">python3.12</span> -m venv .venv</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true"></a><span class="bu">source</span> .venv/bin/activate</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true"></a><span class="ex">pip</span> install -r requirements-dev.txt</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true"></a><span class="ex">python</span> -m pytest -q                      # 310 passed</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true"></a><span class="ex">python</span> -m lookout.evaluate               # precision / recall report</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true"></a><span class="bu">export</span> <span class="va">JWT_SECRET=$(</span><span class="ex">python</span> -c <span class="st">&quot;import secrets; print(secrets.token_urlsafe(48))&quot;</span><span class="va">)</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true"></a><span class="ex">uvicorn</span> lookout.api:app --port 8077      # API + live traffic</span></code></pre></div>
+<div class="sourceCode" id="cb3"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true"></a><span class="bu">cd</span> ../frontend</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true"></a><span class="ex">npm</span> ci</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true"></a><span class="ex">npm</span> run dev                              # http://localhost:3000</span></code></pre></div>
+<p>The API uses port <strong>8077</strong> rather than 8000, which is usually taken by another local FastAPI project. If you change it, set <code>VITE_API_URL</code> for the frontend. Python 3.12 is required. Some machines still have an old <code>python3</code> first on the PATH, so call <code>python3.12</code> explicitly.</p>
+<hr />
+<h2 id="the-event-model">4. The Event Model</h2>
+<p>Everything that enters Lookout is an <code>Event</code>, and everything that leaves is a <code>Decision</code> (<code>backend/lookout/models.py</code>):</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true"></a><span class="kw">class</span> Event(BaseModel):</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true"></a>    event_id: <span class="bu">str</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true"></a>    ts: datetime</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true"></a>    actor: <span class="bu">str</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true"></a>    actor_role: Role</span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true"></a>    action: Action           <span class="co"># login, login_failed, priv_escalate, db_query, file_access,</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true"></a>                             <span class="co"># config_change, send_message, vault_read, logout</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true"></a>    resource: <span class="bu">str</span> <span class="op">=</span> <span class="st">&quot;&quot;</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true"></a>    source_ip: <span class="bu">str</span> <span class="op">=</span> <span class="st">&quot;0.0.0.0&quot;</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true"></a>    device_id: <span class="bu">str</span> <span class="op">=</span> <span class="st">&quot;unknown&quot;</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true"></a>    geo: Geo</span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true"></a>    success: <span class="bu">bool</span> <span class="op">=</span> <span class="va">True</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true"></a>    message: MessagePayload <span class="op">|</span> <span class="va">None</span> <span class="op">=</span> <span class="va">None</span></span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true"></a>    meta: <span class="bu">dict</span>[<span class="bu">str</span>, Any]     <span class="co"># record_count, target_role, session_id, bytes_written ...</span></span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true"></a>    label: ThreatClass <span class="op">|</span> <span class="va">None</span> <span class="op">=</span> <span class="va">None</span>   <span class="co"># ground truth, generated data only</span></span></code></pre></div>
+<p>Roles map to privilege levels 1–6, from teller to domain admin. Two frozensets define who may speak to customers at all, and who may do it in bulk:</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true"></a>CUSTOMER_COMMS_ROLES <span class="op">=</span> <span class="bu">frozenset</span>({Role.OFFICER, Role.MANAGER, Role.DOMAIN_ADMIN})</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true"></a>BULK_COMMS_ROLES     <span class="op">=</span> <span class="bu">frozenset</span>({Role.MANAGER, Role.DOMAIN_ADMIN})</span></code></pre></div>
+<p><strong>Why a <code>label</code> field that detectors never read?</strong> It makes evaluation possible (section 15). The API strips it from every response so nobody inspecting the console's traffic has to take that on trust.</p>
+<hr />
+<h2 id="behavioural-baselines">5. Behavioural Baselines</h2>
+<p>A 2 a.m. login is routine for the on-call sysadmin and alarming for a teller. So every threshold is measured against the actor's own history (<code>baselines.py</code>):</p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true"></a><span class="kw">class</span> Baseline:</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true"></a>    hour_counts: <span class="bu">list</span>[<span class="bu">int</span>]          <span class="co"># 24-bin activity histogram</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true"></a>    countries, devices, ip_prefixes <span class="co"># categorical &quot;seen before&quot; sets</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true"></a>    records_per_query: RunningStat  <span class="co"># Welford online mean / std</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true"></a>    recipients_per_message: RunningStat</span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true"></a>    last_login_ts, last_login_geo   <span class="co"># for impossible travel</span></span></code></pre></div>
+<p><code>RunningStat</code> uses Welford's algorithm, so the profile updates one event at a time with no stored history. Its z-score floors sigma at <code>max(1, 10% of mean)</code>. Without the floor, a teller whose queries are always exactly 40 rows would get an infinite z-score the first time they read 41.</p>
+<p><strong>Why only learn from allowed events?</strong> In <code>pipeline.py</code>:</p>
+<div class="sourceCode" id="cb7"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true"></a><span class="cf">if</span> action <span class="kw">is</span> ActionTaken.ALLOW:</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true"></a>    baseline.observe(event)</span></code></pre></div>
+<p>If a blocked 412,000-row read fed into the baseline, the next exfiltration would look less unusual. A test checks the baseline mean is unchanged after the exfiltration scenario.</p>
+<hr />
+<h2 id="the-detectors">6. The Detectors</h2>
+<p>Twenty-seven detectors, each a function <code>(event, baseline, ctx) -&gt; list[Signal]</code>. A <code>Signal</code> carries its points, a complete sentence, and which threat classes it is evidence for:</p>
+<div class="sourceCode" id="cb8"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true"></a>Signal(</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true"></a>    name<span class="op">=</span><span class="st">&quot;impossible_travel&quot;</span>,</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true"></a>    points<span class="op">=</span><span class="fl">50.0</span>,</span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true"></a>    explanation<span class="op">=</span><span class="st">&quot;Login from Kyiv, UA is 6,102 km from the previous login in Chennai &quot;</span></span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true"></a>                <span class="st">&quot;28 minutes earlier -- 13,076 km/h, which no traveller can achieve. ...&quot;</span>,</span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true"></a>    indicates<span class="op">=</span>[ThreatClass.COMPROMISED],</span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true"></a>)</span></code></pre></div>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Group</th>
+<th>Detector</th>
+<th>Fires when</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Identity</td>
+<td><code>impossible_travel</code></td>
+<td>great-circle distance ÷ elapsed time &gt; 900 km/h</td>
+</tr>
+<tr class="even">
+<td></td>
+<td><code>abnormal_login_time</code></td>
+<td>the hour holds &lt; 1% of this person's history</td>
+</tr>
+<tr class="odd">
+<td></td>
+<td><code>new_device_or_network</code></td>
+<td>first sighting of a device, country or /24 network</td>
+</tr>
+<tr class="even">
+<td></td>
+<td><code>failed_login_burst</code></td>
+<td>≥ 5 failures in 15 min (more points from an unfamiliar origin)</td>
+</tr>
+<tr class="odd">
+<td></td>
+<td><code>credential_misuse</code></td>
+<td>a success after ≥ 5 failures</td>
+</tr>
+<tr class="even">
+<td></td>
+<td><code>containment_breach</code></td>
+<td>revoked session reused, locked origin retrying, or persisting after a block</td>
+</tr>
+<tr class="odd">
+<td>Privilege</td>
+<td><code>privilege_escalation</code></td>
+<td>requested role above held role; scored by levels jumped + burst</td>
+</tr>
+<tr class="even">
+<td></td>
+<td><code>out_of_scope_admin_action</code></td>
+<td>config change / vault read / escalation by a role without the mandate</td>
+</tr>
+<tr class="odd">
+<td></td>
+<td><code>dormant_privileged_account</code></td>
+<td>level ≥ 4 account active after 45+ idle days</td>
+</tr>
+<tr class="even">
+<td>Data</td>
+<td><code>mass_record_access</code></td>
+<td>rows read far above personal norm, or ≥ 10,000 absolute</td>
+</tr>
+<tr class="odd">
+<td></td>
+<td><code>off_hours_data_access</code></td>
+<td>data access outside 08:00–20:00</td>
+</tr>
+<tr class="even">
+<td></td>
+<td><code>bulk_file_write</code></td>
+<td>≥ 250 MB written in one operation (data staging)</td>
+</tr>
+<tr class="odd">
+<td></td>
+<td><code>vault_hoarding</code></td>
+<td>≥ 8 vault reads in 30 minutes</td>
+</tr>
+<tr class="even">
+<td>Messaging</td>
+<td><code>suspicious_url</code></td>
+<td>a link impersonates the bank or hides its destination</td>
+</tr>
+<tr class="odd">
+<td></td>
+<td><code>bulk_message_blast</code></td>
+<td>recipients far above sender's norm, or from an unauthorised role</td>
+</tr>
+<tr class="even">
+<td></td>
+<td><code>unauthorized_customer_comms</code></td>
+<td>customer messaging from a role without the mandate</td>
+</tr>
+<tr class="odd">
+<td>Transfers</td>
+<td><code>suspicious_transfer</code></td>
+<td>over the role's limit or far above personal norm, a new outside payee, out of hours; a role with no transfer mandate is blocked outright</td>
+</tr>
+<tr class="even">
+<td>Sign-in</td>
+<td><code>compound_login_anomaly</code></td>
+<td>three or four of {rare hour, new device, new country, new network} at once</td>
+</tr>
+<tr class="odd">
+<td>Sessions</td>
+<td><code>concurrent_sessions</code></td>
+<td>a second live session from another device or network</td>
+</tr>
+<tr class="even">
+<td></td>
+<td><code>login_frequency</code></td>
+<td>five or more sign-ins in an hour</td>
+</tr>
+<tr class="odd">
+<td></td>
+<td><code>session_context_change</code></td>
+<td>one session's requests suddenly from a different device or /24 network (a stolen token)</td>
+</tr>
+<tr class="even">
+<td></td>
+<td><code>query_rate_burst</code></td>
+<td>60+ database queries in five minutes (the spec's "10 an hour, then 500 in 5 minutes")</td>
+</tr>
+<tr class="odd">
+<td></td>
+<td><code>failed_authorization</code></td>
+<td>refused requests; three in 30 minutes means someone is probing</td>
+</tr>
+<tr class="even">
+<td>Content</td>
+<td><code>phishing_language</code></td>
+<td>the NLP content model says the text reads like a scam (section 11)</td>
+</tr>
+<tr class="odd">
+<td></td>
+<td><code>sensitive_data_leak</code></td>
+<td>card (Luhn-checked), Aadhaar, PAN, IFSC, account numbers or credentials in the text; worse to a personal mailbox</td>
+</tr>
+<tr class="even">
+<td></td>
+<td><code>risky_attachment</code></td>
+<td>executables, double extensions (<code>statement.pdf.exe</code>), macro documents, HTML files, large data exports</td>
+</tr>
+<tr class="odd">
+<td></td>
+<td><code>repeated_message</code></td>
+<td>the same <em>suspicious</em> text sent three or more times in an hour</td>
+</tr>
+</tbody>
+</table>
+<h3 id="why-a-compound-sign-in-detector">Why a compound sign-in detector</h3>
+<p>The spec says a sign-in at 02:30 from a new device, a new country and an unknown IP "should generate a high-risk login". Scored as four separate weak signals, it reached 34: medium. The spec's own example scenario also says a new device at 02:30 should get <em>additional verification</em>, not a block. Both are right: each novelty alone is ordinary (people get new laptops and travel), but all of them at once is how a stolen password looks. So the compound detector adds nothing for one or two novelties, 12 points for three and 30 for four. Now four novelties score 66.5 (HIGH, blocked into the honeypot) and the spec's step 2 scores 46.9 (MEDIUM, a second factor). Benign traffic never has three at once, so the false-positive count stayed at zero.</p>
+<h3 id="why-logarithmic-volume-scoring">Why logarithmic volume scoring</h3>
+<p>An early version scored volume linearly in z. A test caught the flaw: a teller whose queries are always about 40 rows produces z ≈ 3,000 on <em>any</em> big read, so 12,000 rows and 400,000 rows both hit the cap and scored the same. The fix uses two log-scaled terms:</p>
+<div class="sourceCode" id="cb9"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true"></a>z_term <span class="op">=</span> <span class="bu">min</span>(<span class="fl">12.0</span>, <span class="fl">4.0</span> <span class="op">*</span> math.log2(<span class="bu">max</span>(z, <span class="fl">4.0</span>) <span class="op">/</span> <span class="fl">4.0</span>))           <span class="co"># unusual for *them*</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true"></a>magnitude <span class="op">=</span> math.log10(<span class="bu">max</span>(count, <span class="dv">1</span>) <span class="op">/</span> VOLUME_ABSOLUTE_FLOOR)</span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true"></a>floor_term <span class="op">=</span> <span class="fl">10.0</span> <span class="op">+</span> <span class="fl">12.0</span> <span class="op">*</span> <span class="bu">max</span>(magnitude, <span class="fl">0.0</span>) <span class="cf">if</span> over_floor <span class="cf">else</span> <span class="fl">0.0</span>  <span class="co"># a lot, full stop</span></span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true"></a>points <span class="op">=</span> <span class="bu">min</span>(<span class="fl">46.0</span>, <span class="fl">14.0</span> <span class="op">+</span> z_term <span class="op">+</span> floor_term)</span></code></pre></div>
+<p><code>bulk_message_blast</code> had the same bug and got the same fix, so 900 and 50,000 recipients now score differently. Both have regression tests.</p>
+<hr />
+<h2 id="the-behavioural-model-isolationforest">7. The Behavioural Model (IsolationForest)</h2>
+<p>Rules catch the misuse someone thought to describe. <code>anomaly.py</code> catches the rest. Each event becomes a 13-number vector, every feature <em>relative to the actor's baseline</em>: hour rarity, unseen country/device/network, privilege level, log rows, log recipients, worst URL score, recent failures, log km from last login, events in 30 min, action sensitivity, failed flag.</p>
+<div class="sourceCode" id="cb10"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true"></a>raw <span class="op">=</span> <span class="bu">float</span>(<span class="va">self</span>._forest.decision_function(vector.reshape(<span class="dv">1</span>, <span class="op">-</span><span class="dv">1</span>))[<span class="dv">0</span>])</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true"></a>score <span class="op">=</span> <span class="fl">1.0</span> <span class="op">/</span> (<span class="fl">1.0</span> <span class="op">+</span> math.exp(raw <span class="op">*</span> <span class="fl">12.0</span>))          <span class="co"># 0..1, 1 = most anomalous</span></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true"></a>points <span class="op">=</span> MAX_MODEL_POINTS <span class="op">*</span> score                   <span class="co"># capped at 22 of 100</span></span></code></pre></div>
+<p>Attributions are the three features furthest from the training mean in standard deviations, so the model's contribution also carries a sentence: <em>"driven by log recipients (+8.80 vs typical)"</em>.</p>
+<p><strong>Why cap the model at 22 points?</strong> An unsupervised model that cannot fully explain itself should never be the sole reason an employee is locked out. It can tip a borderline case; it cannot create one.</p>
+<p><strong>Why train only on benign data?</strong> A model trained on attacks learns to call attacks normal. <code>train_from_history</code> skips any event with a non-benign label.</p>
+<hr />
+<h2 id="risk-fusion-bands-and-the-graded-response">8. Risk Fusion, Bands and the Graded Response</h2>
+<pre><code>total = min(100, (rule_points + model_points) × (1 + 0.07 × (privilege_level − 1)))</code></pre>
+<p>The privilege multiplier runs from 1.00 for a teller to 1.35 for a domain admin. The same behaviour is not equally dangerous: a domain admin can do more with 50,000 rows than a teller can.</p>
+<p><code>decide()</code> maps the band to a response, then applies <strong>policy floors</strong>:</p>
+<div class="sourceCode" id="cb12"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true"></a><span class="cf">if</span> to_customers <span class="kw">and</span> hostile_link <span class="kw">and</span> _below(action, ActionTaken.QUARANTINE):</span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true"></a>    <span class="cf">return</span> ActionTaken.QUARANTINE, HOSTILE_LINK_POLICY</span></code></pre></div>
+<p><strong>Why a floor for hostile links?</strong> A browser test found the gap: one lookalike-domain link to one customer scored 30, which meant step-up auth. If the sender passed MFA, the link went out. A malicious insider passes their own MFA without effort, so step-up can't be the control here. Any customer-facing message with a suspicious link is now held for human review, and the decision carries the policy text so the analyst can see why a score of 30 was quarantined.</p>
+<p><strong>Risk-based authentication.</strong> The strength of the step-up scales with privilege and score:</p>
+<div class="sourceCode" id="cb13"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true"></a><span class="cf">if</span> event.privilege <span class="op">&gt;=</span> <span class="dv">5</span> <span class="kw">or</span> risk.total <span class="op">&gt;=</span> <span class="dv">50</span>:  <span class="cf">return</span> <span class="st">&quot;hardware_security_key&quot;</span></span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true"></a><span class="cf">if</span> event.privilege <span class="op">&gt;=</span> <span class="dv">3</span> <span class="kw">or</span> risk.total <span class="op">&gt;=</span> <span class="dv">40</span>:  <span class="cf">return</span> <span class="st">&quot;totp_and_manager_approval&quot;</span></span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true"></a><span class="cf">return</span> <span class="st">&quot;push_notification&quot;</span></span></code></pre></div>
+<hr />
+<h2 id="insider-threat-classification">9. Insider Threat Classification</h2>
+<p>Each signal lists the classes it supports, <strong>primary first</strong>. The primary class gets the signal's full points and each secondary class gets half:</p>
+<div class="sourceCode" id="cb14"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true"></a><span class="cf">for</span> i, cls <span class="kw">in</span> <span class="bu">enumerate</span>(signal.indicates):</span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true"></a>    weights[cls] <span class="op">+=</span> signal.points <span class="op">*</span> (<span class="fl">1.0</span> <span class="cf">if</span> i <span class="op">==</span> <span class="dv">0</span> <span class="cf">else</span> <span class="fl">0.5</span>)</span></code></pre></div>
+<p>Without the weighting, an escalation attempt (<code>[PRIVILEGE_ABUSE, MALICIOUS]</code>) tied and the severity tie-break labelled it malicious.</p>
+<p>Two more rules:</p>
+<ul>
+<li><strong>Containment signals don't vote.</strong> "They kept going after being blocked" raises risk but says nothing about <em>what kind</em> of insider this is. Those events inherit the class their session already has.</li>
+<li><strong>"Compromised" is sticky.</strong> The classes describe the employee, not the act. Once a session is under someone else's control, everything done in it belongs to the intruder. Labelling the employee "malicious" for the intruder's query would be wrong.</li>
+</ul>
+<p>The negligent-insider scenario tests the distinction. A teller emails 900 customers a <em>genuine</em> link. <code>bulk_message_blast</code> classes volume with a clean link as <code>NEGLIGENT</code> and volume with a hostile link as <code>MALICIOUS</code>. The result is quarantine, never a SOC page.</p>
+<hr />
+<h2 id="session-monitoring-and-containment">10. Session Monitoring and Containment</h2>
+<p><code>context.py</code> holds the consequences of earlier decisions:</p>
+<div class="sourceCode" id="cb15"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true"></a><span class="va">self</span>.revoked_sessions: <span class="bu">set</span>[<span class="bu">str</span>]</span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true"></a><span class="va">self</span>.locked_origins: <span class="bu">set</span>[<span class="bu">tuple</span>[<span class="bu">str</span>, <span class="bu">str</span>]]      <span class="co"># (actor, source_ip)</span></span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true"></a><span class="va">self</span>.session_strikes: <span class="bu">dict</span>[<span class="bu">str</span>, <span class="bu">int</span>]           <span class="co"># blocks/holds already issued</span></span>
+<span id="cb15-4"><a href="#cb15-4" aria-hidden="true"></a><span class="va">self</span>.session_class: <span class="bu">dict</span>[<span class="bu">str</span>, ThreatClass]</span></code></pre></div>
+<p><code>pipeline._respond()</code> updates it after each decision:</p>
+<ul>
+<li>BLOCK_AND_ALERT, or BLOCK on a <em>login</em>, revokes the session</li>
+<li>BLOCK_AND_ALERT on a login attempt locks the source IP out of that account</li>
+<li>any block or quarantine is a strike against the session</li>
+</ul>
+<p><strong>The bug this fixed.</strong> In the credential-stuffing scenario the Lagos login was blocked, but only BLOCK_AND_ALERT revoked sessions, so the nine vault reads that followed on the same session were <em>allowed</em>. A refused login now leaves no usable session, and a regression test covers it.</p>
+<hr />
+<h2 id="the-outbound-message-gateway">11. The Outbound Message Gateway</h2>
+<p><code>POST /api/messages/scan</code> is where every staff SMS, email or push is checked before it leaves. URLs are extracted from the <strong>body</strong> rather than taken from a separate field, because a sender hiding a link would simply leave the field empty.</p>
+<p>The first version only matched links starting with <code>http://</code>, <code>https://</code> or <code>www.</code>. Writing the API docs exposed the gap: the example phishing SMS, <code>Update at meridian-bank.secure-verify.top/re-kyc</code>, came back with no links at all, and real phishing texts usually leave the scheme off. The fix also catches bare domains, but only on a known TLD, so ordinary text doesn't turn into links:</p>
+<div class="sourceCode" id="cb16"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true"></a>_BARE <span class="op">=</span> <span class="vs">r&quot;(?&lt;![\w@.-])(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+([a-z]{2,24})(?![\w-])(?:/[^\s&lt;&gt;\&quot;&#39;]*)?&quot;</span></span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true"></a></span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true"></a><span class="kw">def</span> extract_urls(text):</span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true"></a>    <span class="cf">for</span> m <span class="kw">in</span> _LINK.finditer(text):</span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true"></a>        tld <span class="op">=</span> m.group(<span class="dv">1</span>)</span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true"></a>        <span class="cf">if</span> tld <span class="kw">is</span> <span class="kw">not</span> <span class="va">None</span> <span class="kw">and</span> tld.lower() <span class="kw">not</span> <span class="kw">in</span> LINK_TLDS:</span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true"></a>            <span class="cf">continue</span>          <span class="co"># &quot;today.Update&quot; and &quot;report.pdf&quot; are not links</span></span>
+<span id="cb16-8"><a href="#cb16-8" aria-hidden="true"></a>        ...</span></code></pre></div>
+<p>The lookbehind stops <code>ops@meridianbank.in</code> from matching as a link, and "Rs.500" fails because <code>500</code> isn't a TLD.</p>
+<p><code>urlcheck.py</code> decides offline whether a link is hostile. With no threat-intel feed, it asks the question that matters for internal phishing, <strong>does this link claim to be us when it isn't?</strong>:</p>
+<div class="sourceCode" id="cb17"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true"></a>HOMOGLYPHS <span class="op">=</span> {<span class="st">&quot;0&quot;</span>: <span class="st">&quot;o&quot;</span>, <span class="st">&quot;1&quot;</span>: <span class="st">&quot;l&quot;</span>, <span class="st">&quot;3&quot;</span>: <span class="st">&quot;e&quot;</span>, <span class="st">&quot;4&quot;</span>: <span class="st">&quot;a&quot;</span>, <span class="st">&quot;5&quot;</span>: <span class="st">&quot;s&quot;</span>, <span class="st">&quot;7&quot;</span>: <span class="st">&quot;t&quot;</span>, ...}</span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true"></a></span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true"></a><span class="kw">def</span> _fold(text):   <span class="co"># visual twins become string twins</span></span>
+<span id="cb17-4"><a href="#cb17-4" aria-hidden="true"></a>    folded <span class="op">=</span> <span class="st">&quot;&quot;</span>.join(HOMOGLYPHS.get(c, c) <span class="cf">for</span> c <span class="kw">in</span> text.lower())</span>
+<span id="cb17-5"><a href="#cb17-5" aria-hidden="true"></a>    <span class="cf">return</span> folded.replace(<span class="st">&quot;rn&quot;</span>, <span class="st">&quot;m&quot;</span>).replace(<span class="st">&quot;vv&quot;</span>, <span class="st">&quot;w&quot;</span>).replace(<span class="st">&quot;-&quot;</span>, <span class="st">&quot;&quot;</span>)</span></code></pre></div>
+<p>After folding, <code>levenshtein(host, corporate) ≤ 2</code> flags lookalikes such as <code>meridianbamk.com</code>, <code>merid1anbank.com</code>, <code>rneridianbank.com</code> and <code>meridian-bank.com</code>. Other findings: brand embedded under a foreign domain, shorteners, bare IPs, punycode, abuse-heavy TLDs, credential bait (<code>kyc</code>, <code>otp</code>, <code>verify</code> ...), plain HTTP, deep subdomain chains.</p>
+<p>URLs get lexical features too: length, a <code>user@host</code> disguise (<code>https://meridianbank.com@login-verify.top</code> really goes to <code>login-verify.top</code>), percent-encoding, redirect parameters (<code>?url=https%3A...</code>), hyphen- or digit-stuffed hosts. Each link gets a 0-100 <strong>URL risk</strong>. Domain age and live redirect chains need a network lookup, which Lookout deliberately doesn't do.</p>
+<h3 id="reading-the-words-the-content-model">Reading the words: the content model</h3>
+<p>A scam doesn't need a link: "This is the fraud team, reply with the OTP you received". The spec asks for "an ML/NLP model where appropriate" rather than keywords, so <code>nlp.py</code> trains a TF-IDF (word 1-2 grams) + logistic regression model on 3,000 template messages, about 30% scams. The explanation names the phrases that pushed the probability up:</p>
+<div class="sourceCode" id="cb18"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true"></a>row <span class="op">=</span> <span class="va">self</span>.pipeline.named_steps[<span class="st">&quot;tfidf&quot;</span>].transform([text])</span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true"></a>contributions <span class="op">=</span> row.multiply(<span class="va">self</span>._coef).tocsr()       <span class="co"># TF-IDF weight x coefficient</span></span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true"></a>idx <span class="op">=</span> contributions.indices[np.argsort(contributions.data)[::<span class="op">-</span><span class="dv">1</span>]]</span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true"></a>phrases <span class="op">=</span> [<span class="va">self</span>._vocab[i] <span class="cf">for</span> i <span class="kw">in</span> idx <span class="cf">if</span> <span class="va">self</span>._coef[i] <span class="op">&gt;=</span> <span class="va">self</span>._strong][:top]</span></code></pre></div>
+<p>The first version flagged "Hi team, lunch at 1?" at 0.53, because short neutral text sat near the decision boundary. Adding ordinary staff chat to the corpus moved it to 0.07. The detector fires at 0.7. The corpus is synthetic and the held-out F1 of 1.0 only proves the pipeline runs.</p>
+<p>Other content checks: <code>sensitive_data_leak</code> counts PII by kind and never repeats the values (a test caught the first 12 digits of a card number also counting as an Aadhaar number); <code>risky_attachment</code> reads attachment metadata; <code>repeated_message</code> catches a campaign split into batches, but only when the text is suspicious, since "your statement is ready" repeats all day.</p>
+<h3 id="the-message-risk-score">The message risk score</h3>
+<p>The spec's formula is URL + sender behaviour + content + destination + privilege + volume. Lookout doesn't compute a second, separate score: <code>message_risk.py</code> splits the one score that decided the message into those six parts, moving the privilege multiplier's extra into "privilege" and the personal-mailbox points into "destination", so the parts always add up to the total.</p>
+<p>The graded outcomes: deliver, hold for step-up, quarantine, or block and page. A held message can be <strong>released</strong>, <strong>blocked</strong> (confirmed bad, and a strike against the sender's session), <strong>deleted</strong>, or put under <strong>investigation</strong> (still held, and filed in the sender's incident). All four are audited. Who may message customers at all, and who may run bulk campaigns, is a configurable communication policy; a privileged administrator messaging customers always needs a second factor.</p>
+<hr />
+<h2 id="quantum-safe-cryptography">12. Quantum-Safe Cryptography</h2>
+<p>Two jobs, two NIST standards (<code>crypto.py</code>):</p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Job</th>
+<th>Algorithm</th>
+<th>Threat it answers</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Sign the audit log</td>
+<td>ML-DSA-65 (FIPS 204)</td>
+<td>Ed25519/ECDSA signatures become forgeable once a large quantum computer exists, which retroactively destroys a log's evidential value</td>
+</tr>
+<tr class="even">
+<td>Seal credentials</td>
+<td>ML-KEM-768 (FIPS 203) + AES-256-GCM</td>
+<td>Harvest now, decrypt later: vault blobs stolen today must stay unreadable</td>
+</tr>
+</tbody>
+</table>
+<div class="sourceCode" id="cb19"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true"></a><span class="kw">def</span> seal(<span class="va">self</span>, plaintext, aad<span class="op">=</span>b<span class="st">&quot;&quot;</span>):</span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true"></a>    shared, kem_ct <span class="op">=</span> ML_KEM_768.encaps(<span class="va">self</span>._ek)</span>
+<span id="cb19-3"><a href="#cb19-3" aria-hidden="true"></a>    nonce <span class="op">=</span> os.urandom(<span class="dv">12</span>)</span>
+<span id="cb19-4"><a href="#cb19-4" aria-hidden="true"></a>    ct <span class="op">=</span> AESGCM(_derive_key(shared)).encrypt(nonce, plaintext, aad)</span>
+<span id="cb19-5"><a href="#cb19-5" aria-hidden="true"></a>    <span class="cf">return</span> SealedBlob(b64(kem_ct), b64(nonce), b64(ct), <span class="va">self</span>.algorithm)</span></code></pre></div>
+<p>The spec asks for protected credentials, configuration, key material and audit artefacts, kept clearly apart from the classical crypto that signs people in. <code>pq_vault.ProtectedStore</code> seals, at start-up, the JWT secret, the database URL, synthetic PAM-vault credentials, a policy snapshot and the audit-signing seed itself (key wrapping), and stores a SHA-256 digest of each. "Verify every artefact" reopens them all. The console's "Corrupt" button flips one ciphertext byte; AES-GCM refuses to open it, and Lookout raises a <strong>Quantum-Safe Key/Artefact Security Event</strong>, which pops up on every SOC screen over the WebSocket. A table on the same page lists what each layer uses and whether it is classical or post-quantum. PBKDF2, HMAC and SHA-256 are listed as classical.</p>
+<p>The vault path is the AES-GCM associated data, so a sealed blob moved to a different path won't decrypt (tested). Both schemes sit behind small interfaces with classical fallbacks. On a host without the PQC libraries the dashboard shows "classical" rather than claiming quantum safety.</p>
+<p><strong>Why pure-Python implementations?</strong> <code>liboqs-python</code> compiles liboqs from source at import time. <code>dilithium-py</code> and <code>kyber-py</code> install with pip in seconds and implement the same standards. The cost is speed (about 90 ms per ML-DSA signature), which is why the audit log signs checkpoints rather than every entry.</p>
+<hr />
+<h2 id="the-tamper-evident-audit-log">13. The Tamper-Evident Audit Log</h2>
+<div class="sourceCode" id="cb20"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true"></a>entry_hash <span class="op">=</span> sha256(canonical({<span class="st">&quot;seq&quot;</span>, <span class="st">&quot;ts&quot;</span>, <span class="st">&quot;kind&quot;</span>, <span class="st">&quot;payload&quot;</span>, <span class="st">&quot;prev&quot;</span>: prev_hash}))</span></code></pre></div>
+<p>Each entry links to the one before. Every 25 entries, and immediately after anything critical, the chain head is <strong>signed with ML-DSA</strong>. Verification recomputes the chain and checks every signature. Three attacks are tested:</p>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Attack</th>
+<th>Caught by</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Edit a payload, leave the hash</td>
+<td>content no longer matches its hash, reported at that entry</td>
+</tr>
+<tr class="even">
+<td>Edit a payload and recompute its hash</td>
+<td>the next entry's <code>prev_hash</code> no longer links</td>
+</tr>
+<tr class="odd">
+<td>Rewrite the whole chain consistently</td>
+<td>the signed checkpoint no longer verifies without the private key</td>
+</tr>
+</tbody>
+</table>
+<p>The console's <strong>Forge entry</strong> button runs the first attack live. <strong>Reset demo</strong> restores state.</p>
+<hr />
+<h2 id="the-narrator-explainability-in-prose">14. The Narrator (Explainability in Prose)</h2>
+<p>The score, class and action are all fixed before <code>narrator.py</code> runs. The narrator only writes them up. With no key it builds the summary from the top two signals:</p>
+<blockquote>
+<p>p.nair (officer) scored 30/100 for sending an SMS to 1 recipient -- medium risk, consistent with deliberate misuse. Outbound SMS to 1 recipient contains <a href="https://meridianbamk.com/login" class="uri">https://meridianbamk.com/login</a> -- host resembles the corporate domain meridianbank.com ... Held by policy: Customer-facing messages carrying a suspicious link are never delivered without human review, whatever the sender's risk score.</p>
+</blockquote>
+<p>With <code>GEMINI_API_KEY</code> set, Gemini receives the same evidence and is told to invent nothing and neither soften nor escalate. If a call fails once, the narrator marks itself degraded and uses the template from then on, so a network outage never stalls decisions.</p>
+<hr />
+<h2 id="synthetic-data-and-evaluation">15. Synthetic Data and Evaluation</h2>
+<p>Real privileged-access logs from a bank can't be obtained, and an approximation scraped from elsewhere would be worse than none. <code>generator.py</code> simulates <strong>Meridian Bank</strong>: 12 staff across Chennai, Bengaluru, Mumbai and Singapore, each with their own hours, devices, query volumes and messaging habits. The simulation includes the awkward benign cases: managers running 400–2,500-recipient campaigns, weekend on-call admins, one or two mistyped passwords a day.</p>
+<p><code>evaluate.py</code> trains on 30 days and scores a held-out week plus all the scenarios:</p>
+<pre><code>precision              : 1.000
+recall                 : 0.976
+false positive rate    : 0.0000  (0 of 873 benign)
+threat classification  : 1.000  (40 of 40 detected incidents named correctly)
+policy step-ups        : 8  (low-score events given MFA because policy requires it)</code></pre>
+<p><strong>Policy step-ups</strong> are counted separately on purpose. The spec says privileged administrators need a second factor for customer messages, so n.pillai's ordinary messages now get one. Counting those as false positives would punish a mandatory control. Counting them as detections, when an attack only reaches a policy step-up, would inflate recall. So the evaluator reports them on their own line and scores neither way.</p>
+<p>The one miss is on purpose: the 02:14 login that opens the exfiltration scenario is allowed, because an unusual hour alone isn't enough to lock someone out. The query four minutes later is blocked.</p>
+<p><strong>What this does and doesn't prove.</strong> Lookout generated both the attacks and the normal traffic, so these numbers show internal consistency and that ordinary work doesn't trigger alerts. They are <strong>not</strong> a claim about a real bank. <code>tests/test_evaluation.py</code> sets floors below today's numbers so that a later change can't quietly trade recall for fewer alerts.</p>
+<p>The generator also had a bug of its own: simulated tellers sent customer messages, which the policy forbids, so "benign" data broke the rules it was scored against. That was the only false positive. Fixing the simulation, not the detector, was the right call.</p>
+<hr />
+<h2 id="roles-sign-in-and-sessions">16. Roles, Sign-in and Sessions</h2>
+<p>There are five roles:</p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Kind</th>
+<th>Accounts</th>
+<th>Can</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Employee</td>
+<td>12 staff, e.g. <code>r.krishnan</code> / <code>Teller@Krishnan1</code></td>
+<td>the portal: customers, transfers, access requests, own profile and activity, open protected systems their role allows</td>
+</tr>
+<tr class="even">
+<td>Manager</td>
+<td><code>l.mathew</code>, <code>v.rao</code> (employees with the manager role)</td>
+<td>the portal, plus <strong>My team</strong>: their team's risk, and approving access requests</td>
+</tr>
+<tr class="odd">
+<td>Privileged administrator</td>
+<td><code>t.banerjee</code> (DBA), <code>h.qureshi</code> (sysadmin), <code>n.pillai</code> (domain admin)</td>
+<td>the portal, plus the <strong>Admin console</strong>: disable or enable accounts and change roles <em>below their own level</em>, edit the communication policy. Every operation is a scored admin event</td>
+</tr>
+<tr class="even">
+<td>SOC analyst</td>
+<td><code>soc.analyst</code> / <code>SocWatch@2026</code></td>
+<td>the whole console</td>
+</tr>
+<tr class="odd">
+<td>Super admin</td>
+<td><code>super.admin</code> / <code>SuperAdmin@2026</code></td>
+<td>the console, plus live policy and final access approval</td>
+</tr>
+</tbody>
+</table>
+<p>Passwords are PBKDF2-HMAC-SHA256 with a per-account salt. A successful sign-in returns an HS256 JWT, but the token isn't the whole story: it carries a session ID that is checked against a server-side registry on every request. That is what makes revocation instant. When the engine blocks a login or the SOC clicks <strong>Revoke</strong>, the session is gone, even though the JWT is still unexpired.</p>
+<p>Access control is a single table, checked once in middleware instead of on every handler:</p>
+<div class="sourceCode" id="cb22"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true"></a>ROUTE_ACCESS <span class="op">=</span> (</span>
+<span id="cb22-2"><a href="#cb22-2" aria-hidden="true"></a>    (<span class="st">&quot;/api/health&quot;</span>, PUBLIC),</span>
+<span id="cb22-3"><a href="#cb22-3" aria-hidden="true"></a>    (<span class="st">&quot;/api/auth/&quot;</span>, PUBLIC),</span>
+<span id="cb22-4"><a href="#cb22-4" aria-hidden="true"></a>    (<span class="st">&quot;/api/portal/&quot;</span>, <span class="bu">frozenset</span>({<span class="st">&quot;employee&quot;</span>})),</span>
+<span id="cb22-5"><a href="#cb22-5" aria-hidden="true"></a>    (<span class="st">&quot;/api/team/&quot;</span>, <span class="bu">frozenset</span>({<span class="st">&quot;employee&quot;</span>})),   <span class="co"># and the handler checks for a manager</span></span>
+<span id="cb22-6"><a href="#cb22-6" aria-hidden="true"></a>    (<span class="st">&quot;/api/admin/&quot;</span>, <span class="bu">frozenset</span>({<span class="st">&quot;superadmin&quot;</span>})),</span>
+<span id="cb22-7"><a href="#cb22-7" aria-hidden="true"></a>)</span>
+<span id="cb22-8"><a href="#cb22-8" aria-hidden="true"></a>CONSOLE <span class="op">=</span> <span class="bu">frozenset</span>({<span class="st">&quot;soc&quot;</span>, <span class="st">&quot;superadmin&quot;</span>})     <span class="co"># everything else</span></span></code></pre></div>
+<p>Because the default is "console only", a new route can't accidentally be exposed to employees.</p>
+<p>The sign-in is also an <strong>event</strong>. The engine scores it like anything else (new device, impossible travel, a burst of failures), and a blocked login returns 403 with no token even when the password was right. On top of that, <code>LoginLimiter</code> refuses more than 10 failures in 5 minutes for an account, or more than 60 attempts a minute from one IP, with a 429.</p>
+<p><strong>What the sign-in returns</strong> depends on its risk. LOW: a session, plus <code>{risk_score, risk_level, reason[]}</code>. MEDIUM: no session yet, a simulated one-time code to confirm at <code>/api/auth/mfa/verify</code>, and each wrong code scored as a failed sign-in. HIGH: a session, but into the honeypot. The sign-in page has a <strong>Sign-in context</strong> selector (new laptop at 02:30; 02:30 from a new country on an unknown device; New York), because a demo can't really change your device or city. The server applies it to the sign-in event: device, IP, city and hour.</p>
+<p><strong>Privilege escalation, the spec's way.</strong> If a teller calls an admin-console route, they get a 403, and the attempt is ingested as a <code>PRIV_ESCALATE</code> event aimed at domain admin. The escalation detector scores it, and the teller likely lands in the honeypot. A refusal that isn't also a signal would let someone probe for free.</p>
+<p><strong>Bug found by the browser test:</strong> a blocked login used to leave a usable session behind, so the "blocked" attacker could still read the vault. The fix revokes the session whenever the response is a block, and a regression test keeps it that way.</p>
+<hr />
+<h2 id="the-employee-portal-and-the-honeypot">17. The Employee Portal and the Honeypot</h2>
+<p>The employee portal has four tabs: <strong>Customers</strong> (the book, with PII masked), <strong>Fund transfer</strong>, <strong>Access requests</strong>, and, for managers, <strong>My team</strong>.</p>
+<p>The brief asked for something unusual: when an employee does something risky, don't block them visibly. Show them "a duplicate page of exactly how the transfer page will look", with fake values, record everything, and tell the monitoring team.</p>
+<p>The key design decision was that there is <strong>no duplicate page</strong>. A second page, however faithful, could differ in a detail an insider would notice. Instead, the <em>same</em> pages switch their data source. An engine listener watches every decision:</p>
+<div class="sourceCode" id="cb23"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true"></a><span class="kw">def</span> _honeypot_trigger(<span class="va">self</span>, decision):</span>
+<span id="cb23-2"><a href="#cb23-2" aria-hidden="true"></a>    high <span class="op">=</span> decision.risk.band <span class="kw">in</span> (Band.HIGH, Band.CRITICAL) <span class="kw">or</span> decision.action_taken <span class="kw">in</span> (</span>
+<span id="cb23-3"><a href="#cb23-3" aria-hidden="true"></a>        ActionTaken.BLOCK, ActionTaken.BLOCK_AND_ALERT)</span>
+<span id="cb23-4"><a href="#cb23-4" aria-hidden="true"></a>    <span class="cf">if</span> <span class="kw">not</span> high <span class="kw">or</span> actor <span class="kw">not</span> <span class="kw">in</span> BY_ACTOR:</span>
+<span id="cb23-5"><a href="#cb23-5" aria-hidden="true"></a>        <span class="cf">return</span></span>
+<span id="cb23-6"><a href="#cb23-6" aria-hidden="true"></a>    <span class="cf">if</span> <span class="va">self</span>.ledger.watch(actor, reason):</span>
+<span id="cb23-7"><a href="#cb23-7" aria-hidden="true"></a>        <span class="va">self</span>.incidents.note_for_user(actor, <span class="st">&quot;honeypot&quot;</span>, <span class="ss">f&quot;Moved into the honeypot: </span><span class="sc">{</span>reason<span class="sc">}</span><span class="ss">. ...&quot;</span>)</span>
+<span id="cb23-8"><a href="#cb23-8" aria-hidden="true"></a>        <span class="va">self</span>.engine.audit.append(<span class="st">&quot;honeypot.activated&quot;</span>, {...}, critical<span class="op">=</span><span class="va">True</span>)</span></code></pre></div>
+<p>Once someone is on the watchlist:</p>
+<ul>
+<li><strong>Transfers</strong> go to a per-employee <strong>shadow ledger</strong> (<code>banking.py</code>). The OTP step, the "Transfer successful" message, the reference number, the UTR and the debited balance all behave exactly like the real thing, and the fake balance stays debited on refresh. No real money moves; each fake transfer is audited with <code>real_funds_moved: false</code>.</li>
+<li><strong>Exports</strong> return a decoy PDF from the same renderer as a real one. Everything the employee saw on screen is kept (names, customer IDs, the last four digits of the account number), and everything the screen masked is fabricated. A decoy that disagreed with the screen would give itself away.</li>
+<li><strong>Canaries.</strong> Fake account numbers, the PDF's footer reference (<code>MB-DOC-...</code>), and fake transaction references and UTRs are all recorded. If one turns up later, the SOC pastes it into <strong>Trace</strong> and gets the name of the employee who received it.</li>
+</ul>
+<p>Exporting 100 or more customers triggers a decoy on its own; the super admin can change the threshold.</p>
+<p><strong>Two bugs worth knowing about.</strong> The watchlist was first keyed by session, so a caught employee who signed out and back in got real data again, and could compare it with the decoy. It is now keyed by person, and only the SOC's <strong>Clear</strong> ends it. Second, the decoy PDFs' footer was drawn after the table, and on a full page that pushed it onto a new page that genuine exports didn't have. Moving it into FPDF's <code>footer()</code> hook fixed that.</p>
+<p>Managers see their team's risk but are never told that someone is in the honeypot. The browser test checks that the words don't appear anywhere on the manager's page.</p>
+<p><strong>My profile</strong> shows the employee their own details and recent activity, and lets them open protected systems. It never shows risk scores, which would teach an insider where the thresholds are. Opening a system runs the same policy engine as the SOC's access check: out of role is <strong>denied</strong> and logged as a failed authorisation; medium current risk, or a privileged account opening a critical system, needs a <strong>second factor</strong>; high risk gets <strong>read-only</strong> access.</p>
+<hr />
+<h2 id="the-supervised-classifier-and-shap">18. The Supervised Classifier and SHAP</h2>
+<p>The spec asked for a trained model with proper evaluation. The IsolationForest (section 7) is unsupervised; this one learns from labels.</p>
+<p><strong>Dataset.</strong> <code>ml/generate_dataset.py</code> writes 10,600 synthetic <em>sessions</em> to <code>backend/datasets/insider_sessions.csv</code>: 9,400 normal (88.7%), 420 negligent, 330 malicious, 260 compromised and 190 privilege abuse. There are 18 features per session: login hour, location and device change, failed logins, data volume, sensitive-resource access, message count, suspicious URLs, privilege level, role-change attempts, transfer amount, new outside payees and so on.</p>
+<p>The first version of the dataset had two shortcuts, and the model found both. "Any escalation request" was a perfect privilege-abuse label, because no normal session contained one. And "short session" identified every compromise; SHAP showed the model leaning on exactly that one feature. Real life overlaps, so the generator was changed:</p>
+<ul>
+<li>admins make approved just-in-time elevations for change windows;</li>
+<li>half of the compromised sessions are hijacks in the middle of the real person's working day, so the session keeps its ordinary length and content;</li>
+<li>negligent sessions are mostly ordinary work.</li>
+</ul>
+<p><strong>Model.</strong> <code>RandomForestClassifier(n_estimators=200, min_samples_leaf=3, class_weight="balanced_subsample")</code>. Without the class weighting, predicting "normal" every time would score 88.7% accuracy.</p>
+<p><strong>Evaluation, done two ways:</strong></p>
+<table>
+<thead>
+<tr class="header">
+<th></th>
+<th>stratified 25% split</th>
+<th>unseen employees</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>accuracy</td>
+<td>0.973</td>
+<td>0.923</td>
+</tr>
+<tr class="even">
+<td>macro F1</td>
+<td>0.903</td>
+<td>0.867</td>
+</tr>
+<tr class="odd">
+<td>threat recall</td>
+<td>0.837</td>
+<td>0.876</td>
+</tr>
+<tr class="even">
+<td>negligent recall / precision</td>
+<td>0.638 / 0.827</td>
+<td>0.677 / <strong>0.297</strong></td>
+</tr>
+</tbody>
+</table>
+<p>The second column is the honest one. Tested on employees it has never seen, the model confuses careless-but-innocent with ordinary work: seven in ten of its "negligent" calls are wrong. That is why the model gives a <strong>second opinion</strong> next to the rules and never decides on its own.</p>
+<p><strong>SHAP.</strong> For every flagged session, <code>TreeExplainer</code> returns the features that pushed the prediction towards its class. The console's decision panel shows them next to the rule signals, so an analyst can see both why the rules fired and what the model thinks.</p>
+<div class="sourceCode" id="cb24"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true"></a><span class="bu">cd</span> ml <span class="kw">&amp;&amp;</span> <span class="ex">python</span> generate_dataset.py <span class="kw">&amp;&amp;</span> <span class="ex">python</span> train.py <span class="kw">&amp;&amp;</span> <span class="ex">python</span> explain.py</span></code></pre></div>
+<hr />
+<h2 id="the-database">19. The Database</h2>
+<p>With <code>DATABASE_URL</code> set, every decision is written through to PostgreSQL across 15 tables: roles, permissions, users, login events, sessions, activity logs, risk scores, threat events, messages, URL analysis, quarantined messages, alerts, incidents and audit logs. Persistence is an engine <strong>listener</strong>, so the detection code doesn't know the database exists.</p>
+<p>Each API start is a <em>run</em> with its own <code>run_id</code>, because the in-memory audit chain starts again at sequence 0. <code>GET /api/db/status</code> recomputes the SHA-256 chain <strong>from the database rows</strong>, which catches someone editing the table directly, not just the in-memory log.</p>
+<p><strong>Bug found by the tests:</strong> SQLite hands back timestamps without a timezone and PostgreSQL with one, so comparisons between the two failed. Every timestamp read back now goes through a <code>_utc()</code> helper. CI runs the database tests against a real PostgreSQL service as well as SQLite.</p>
+<p>What it doesn't do: the engine rebuilds its baselines from the synthetic replay on each start and doesn't reload them from the database. The database is the durable record, not the engine's working memory.</p>
+<hr />
+<h2 id="the-api">20. The API</h2>
+<p>About 70 routes; the full list is in <code>docs/api.md</code> and at <code>/swagger</code>. The main groups:</p>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Group</th>
+<th>Examples</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Auth</td>
+<td><code>POST /api/auth/login</code>, <code>/logout</code>, <code>GET /api/auth/me</code></td>
+</tr>
+<tr class="even">
+<td>Employee portal</td>
+<td><code>/api/portal/customers</code>, <code>/export</code>, <code>/transfers</code>, <code>/transfers/verify</code>, <code>/access-requests</code></td>
+</tr>
+<tr class="odd">
+<td>Manager</td>
+<td><code>/api/team/overview</code>, <code>/api/team/access-requests/{id}/decide</code></td>
+</tr>
+<tr class="even">
+<td>Super admin</td>
+<td><code>GET/PUT /api/admin/policies</code>, <code>/api/admin/access-requests</code></td>
+</tr>
+<tr class="odd">
+<td>Live</td>
+<td><code>WS /api/ws</code>, <code>GET /api/stream</code> (SSE)</td>
+</tr>
+<tr class="even">
+<td>Detection</td>
+<td><code>/api/decisions</code>, <code>/api/events</code>, <code>/api/scenarios/{key}/run</code>, <code>/api/risk/{id}/explanation</code></td>
+</tr>
+<tr class="odd">
+<td>Messaging</td>
+<td><code>/api/messages/scan</code>, <code>/api/urls/inspect</code>, <code>/api/quarantine</code></td>
+</tr>
+<tr class="even">
+<td>SOC work</td>
+<td><code>/api/alerts</code>, <code>/api/incidents</code> (assign, notes, status, actions), <code>/api/sessions/{id}/revoke</code>, <code>/api/accounts/{u}/disable</code></td>
+</tr>
+<tr class="odd">
+<td>Honeypot</td>
+<td><code>/api/honeypots</code>, <code>/api/honeypots/trace</code>, <code>/api/honeypots/watchlist/{actor}/clear</code></td>
+</tr>
+<tr class="even">
+<td>Audit, crypto, ML, DB</td>
+<td><code>/api/audit/verify</code>, <code>/api/crypto</code>, <code>/api/ml/metrics</code>, <code>/api/db/status</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="the-frontend">21. The Frontend</h2>
+<p>React 19 with Vite, React Router and Tailwind 4. The routes:</p>
+<ul>
+<li><code>/login</code> lists the demo accounts.</li>
+<li><code>/employee</code> is the portal.</li>
+<li>The console has 17 pages behind a sidebar (<code>layouts/SocLayout.tsx</code>): Dashboard, Simulation, Live activity, Alerts, Incidents, Honeypot, Users (with a per-user page), Sessions, Access control, Privileged access, Messages, Message scanner, Quarantine, Audit &amp; quantum-safe, ML insights, Security policies and Settings.</li>
+</ul>
+<p><code>hooks/useLive.tsx</code> opens one WebSocket per tab and shares decisions, stats and alerts with every page. The session token lives in <code>sessionStorage</code>, so an employee and the SOC can be signed in side by side in two tabs of the same browser, which is how the honeypot demo is run.</p>
+<p>A Playwright script checks it end to end: all 17 console pages load, the WebSocket connects, SHAP rows appear, an incident can be assigned, the decoy PDF and fake transfer look genuine to the employee and show up for the SOC, the manager never sees the honeypot, the super admin can save policy, the database audit chain verifies, and nothing overflows at phone width.</p>
+<p><strong>Two bugs it caught.</strong> The super admin's <strong>Save policy</strong> did nothing: the browser's CORS preflight rejected <code>PUT</code> because only GET and POST were allowed. Second, the sign-in page overflowed a phone screen by 554 px, because a CSS grid column sized itself to a long table. <code>grid-cols-[minmax(0,1fr)]</code> fixed it.</p>
+<p>The long tables (alerts, incidents, messages, quarantine, audit log) have search, filters and pagination through a shared <code>usePaged</code> hook, and details open in a modal dialog. <strong>Bug:</strong> the quarantine dialog first rendered clipped inside its card, because a card's <code>backdrop-blur</code> creates a containing block for <code>position: fixed</code> children. Rendering dialogs through a portal on <code>document.body</code> fixed it. The screenshot check caught this, where a "dialog opened" assertion had passed.</p>
+<hr />
+<h2 id="docker-and-ci">22. Docker and CI</h2>
+<pre><code>docker compose up -d --build
+  db   postgres:16-alpine, its own volume, port not published
+  api  python:3.12-slim; trains the classifier during the build; healthcheck on /api/health
+  web  node build → nginx; serves the app, proxies /api and the WebSocket to api</code></pre>
+<p>The frontend is built with <code>VITE_API_URL=""</code>, so it calls <code>/api/...</code> on its own origin. nginx forwards those calls, including the WebSocket upgrade, which means CORS never comes into it. All three containers use <code>restart: unless-stopped</code>, so the app comes back after a reboot. Compose refuses to start without a <code>JWT_SECRET</code>.</p>
+<p>GitHub Actions runs three jobs on every push: the backend tests (against a PostgreSQL service container), the frontend build, and a Docker image build.</p>
+<hr />
+<h2 id="beyond-the-spec-reports-and-notifications">23. Beyond the Spec: Reports and Notifications</h2>
+<p>Two things the brief never asks for, because a SOC that cannot hand over a report, or whose alerts only exist in an open browser tab, is not much of a SOC.</p>
+<h3 id="incident-reports-reporting.py">Incident reports (<code>reporting.py</code>)</h3>
+<p><strong>Download report</strong> on any incident renders a PDF with fpdf2: summary, every alert with its reasons and recommended action, the evidence (each scored event, its signals and points, the device, address and city), the timeline, actions taken, analyst notes, and a closing section on how to verify it against the signed audit log. Nothing is composed for the report: every line comes from records the system already wrote, so a report cannot say something Lookout did not observe. Exporting one is itself an audit entry and a line on the incident's timeline.</p>
+<p>The built-in PDF fonts are Latin-1, so rupee signs and typographic dashes become boxes. One <code>_ascii()</code> helper substitutes them rather than letting a report render with black squares.</p>
+<h3 id="alert-notifications-notify.py">Alert notifications (<code>notify.py</code>)</h3>
+<p>Critical alerts go to a chat webhook (Slack, Discord, Google Chat, Teams or a Telegram bot, which gets its own payload shape) and/or to an email address through Brevo's HTTP API. Render's free tier blocks outbound SMTP, so an HTTP mail API is the only thing that works there.</p>
+<p>The notifier sits on the detection engine's alert listener, which makes three rules non-negotiable:</p>
+<div class="sourceCode" id="cb26"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true"></a><span class="kw">def</span> on_alert(<span class="va">self</span>, alert):          <span class="co"># called from the engine</span></span>
+<span id="cb26-2"><a href="#cb26-2" aria-hidden="true"></a>    <span class="cf">if</span> <span class="kw">not</span> s.enabled <span class="kw">or</span> <span class="kw">not</span> s.channels():      <span class="co"># off by default</span></span>
+<span id="cb26-3"><a href="#cb26-3" aria-hidden="true"></a>        <span class="cf">return</span></span>
+<span id="cb26-4"><a href="#cb26-4" aria-hidden="true"></a>    <span class="cf">if</span> SEVERITY_ORDER[severity] <span class="op">&lt;</span> SEVERITY_ORDER[s.min_severity]:</span>
+<span id="cb26-5"><a href="#cb26-5" aria-hidden="true"></a>        <span class="cf">return</span></span>
+<span id="cb26-6"><a href="#cb26-6" aria-hidden="true"></a>    ...                              <span class="co"># cooldown + hourly cap, under a lock</span></span>
+<span id="cb26-7"><a href="#cb26-7" aria-hidden="true"></a>    <span class="va">self</span>._queue.put_nowait(_message_for(alert))   <span class="co"># a worker thread sends it</span></span></code></pre></div>
+<ul>
+<li><strong>Never block</strong>: the engine queues and returns; a slow webhook cannot slow a decision.</li>
+<li><strong>Never crash</strong>: every send is wrapped, and a failure becomes a recorded <code>Delivery</code>, never an exception into the pipeline. The console shows the last ten attempts with their errors.</li>
+<li><strong>Never flood</strong>: at most 20 messages an hour, and the same person and alert type is not repeated within five minutes. An attack that fires forty alerts must not send forty messages.</li>
+</ul>
+<p><strong>A bug the tests caught.</strong> The first redaction kept the last URL segment, and a Slack webhook carries its token in exactly that segment, so the console would have displayed the secret. The status endpoint now shows scheme and host only, and a test asserts the token never appears.</p>
+<p><strong>A bug the browser check caught.</strong> The "Send test alert" button reported "Test sent." even when the webhook had refused the connection: the generic message overwrote the per-channel result. Now a step returns its own outcome and that is what the analyst sees.</p>
+<hr />
+<h2 id="configuration-troubleshooting">24. Configuration &amp; Troubleshooting</h2>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Variable</th>
+<th>Default</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>DATABASE_URL</code></td>
+<td>empty (in-memory)</td>
+<td>PostgreSQL connection</td>
+</tr>
+<tr class="even">
+<td><code>JWT_SECRET</code></td>
+<td>random per process</td>
+<td>signs session tokens; 32+ characters</td>
+</tr>
+<tr class="odd">
+<td><code>POST_QUANTUM_KEY</code></td>
+<td>demo seed</td>
+<td>stable ML-DSA key across restarts</td>
+</tr>
+<tr class="even">
+<td><code>FRONTEND_URL</code>, <code>CORS_ORIGINS</code></td>
+<td>empty</td>
+<td>allowed browser origins</td>
+</tr>
+<tr class="odd">
+<td><code>MODEL_PATH</code></td>
+<td><code>backend/trained_models/insider_rf.joblib</code></td>
+<td>classifier location</td>
+</tr>
+<tr class="even">
+<td><code>GEMINI_API_KEY</code></td>
+<td>empty</td>
+<td>enables LLM narratives</td>
+</tr>
+<tr class="odd">
+<td><code>LOOKOUT_HONEYPOT_THRESHOLD</code></td>
+<td><code>100</code></td>
+<td>customers per export before a decoy</td>
+</tr>
+<tr class="even">
+<td><code>LOOKOUT_LIVE_TRAFFIC</code></td>
+<td><code>1</code></td>
+<td>background benign activity</td>
+</tr>
+<tr class="odd">
+<td><code>LOOKOUT_ALLOW_TAMPER</code></td>
+<td><code>1</code></td>
+<td>demo forgery endpoint</td>
+</tr>
+<tr class="even">
+<td><code>LOOKOUT_SHOW_DEMO_ACCOUNTS</code></td>
+<td><code>1</code></td>
+<td>list demo credentials on the sign-in page</td>
+</tr>
+<tr class="odd">
+<td><code>ALERT_WEBHOOK_URL</code></td>
+<td>empty</td>
+<td>chat webhook for critical alerts (with <code>ALERT_TELEGRAM_CHAT_ID</code> for Telegram)</td>
+</tr>
+<tr class="even">
+<td><code>ALERT_EMAIL_TO</code> / <code>ALERT_EMAIL_FROM</code> / <code>BREVO_API_KEY</code></td>
+<td>empty</td>
+<td>email alerts through Brevo</td>
+</tr>
+<tr class="odd">
+<td><code>ALERT_MIN_SEVERITY</code></td>
+<td><code>CRITICAL</code></td>
+<td><code>HIGH</code> also sends high-severity alerts</td>
+</tr>
+<tr class="even">
+<td><code>VITE_API_URL</code></td>
+<td><code>http://localhost:8077</code></td>
+<td>frontend → API, fixed at build time</td>
+</tr>
+</tbody>
+</table>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Symptom</th>
+<th>Cause / fix</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>"Cannot reach the Lookout API"</td>
+<td>API not running, or on another port: set <code>VITE_API_URL</code> and rebuild</td>
+</tr>
+<tr class="even">
+<td>Everyone is signed out after a restart</td>
+<td><code>JWT_SECRET</code> isn't set, so a random one is generated each start</td>
+</tr>
+<tr class="odd">
+<td><code>SyntaxError: future feature annotations</code></td>
+<td>an old <code>python3</code> (3.6) ran it; use <code>python3.12</code></td>
+</tr>
+<tr class="even">
+<td>Dashboard shows "classical" crypto</td>
+<td><code>dilithium-py</code> / <code>kyber-py</code> aren't installed in this venv</td>
+</tr>
+<tr class="odd">
+<td>Credential stuffing looks different the second time</td>
+<td>intended: the attacker's IP is still locked. Use <strong>Reset</strong></td>
+</tr>
+<tr class="even">
+<td>An employee keeps getting fake data</td>
+<td>they're in the honeypot; the SOC clears them on the Honeypot page</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="complete-feature-summary">25. Complete Feature Summary</h2>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Feature</th>
+<th>File</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Per-identity online baselines</td>
+<td><code>baselines.py</code></td>
+</tr>
+<tr class="even">
+<td>27 explainable detectors: sign-in, session, privilege, data, message links and content, transfers</td>
+<td><code>rules/</code></td>
+</tr>
+<tr class="odd">
+<td>NLP message-content model (synthetic corpus)</td>
+<td><code>nlp.py</code></td>
+</tr>
+<tr class="even">
+<td>Six-part message risk breakdown; 0-100 URL risk</td>
+<td><code>message_risk.py</code>, <code>urlcheck.py</code></td>
+</tr>
+<tr class="odd">
+<td>IsolationForest with attributions, capped contribution</td>
+<td><code>anomaly.py</code></td>
+</tr>
+<tr class="even">
+<td>Privilege-weighted fusion, live policy bands, graded response</td>
+<td><code>scoring.py</code>, <code>policy.py</code></td>
+</tr>
+<tr class="odd">
+<td>Policy floors: hostile customer links reviewed, no-mandate transfers blocked</td>
+<td><code>scoring.decide</code></td>
+</tr>
+<tr class="even">
+<td>Insider classification, sticky compromise</td>
+<td><code>scoring.classify</code></td>
+</tr>
+<tr class="odd">
+<td>Session revocation, origin lock-out, persistence detection</td>
+<td><code>context.py</code></td>
+</tr>
+<tr class="even">
+<td>Offline URL reputation and scheme-less link extraction</td>
+<td><code>urlcheck.py</code></td>
+</tr>
+<tr class="odd">
+<td>Message gateway; quarantine release / block / delete / investigate</td>
+<td><code>api.py</code>, <code>routes_spec.py</code>, <code>pipeline.py</code></td>
+</tr>
+<tr class="even">
+<td>Five roles, JWT + revocable sessions, rate limiting, simulated MFA on sign-in</td>
+<td><code>auth.py</code>, <code>api.py</code></td>
+</tr>
+<tr class="odd">
+<td>Employee portal: customers, transfers, access requests, own profile and activity, PAM requests, team view, admin console</td>
+<td><code>portal.py</code>, <code>banking.py</code>, <code>routes_spec.py</code></td>
+</tr>
+<tr class="even">
+<td>Post-quantum protected store with key wrapping; quantum-safe integrity alerts</td>
+<td><code>pq_vault.py</code></td>
+</tr>
+<tr class="odd">
+<td>Incident reports as PDF, audited on export</td>
+<td><code>reporting.py</code></td>
+</tr>
+<tr class="even">
+<td>Critical alerts to a chat webhook or email, off the hot path, rate-limited</td>
+<td><code>notify.py</code></td>
+</tr>
+<tr class="odd">
+<td>Super Admin roles and system configuration</td>
+<td><code>routes_spec.py</code>, <code>runtime.py</code></td>
+</tr>
+<tr class="even">
+<td>Honeypot: decoy PDFs, shadow-ledger transfers, canary tracing</td>
+<td><code>portal.py</code>, <code>banking.py</code></td>
+</tr>
+<tr class="odd">
+<td>Alerts and incident management</td>
+<td><code>incidents.py</code></td>
+</tr>
+<tr class="even">
+<td>RandomForest classifier on 10,600 sessions, with SHAP</td>
+<td><code>lookout/ml/</code>, <code>ml/</code></td>
+</tr>
+<tr class="odd">
+<td>PostgreSQL write-through, 15 tables, chain re-verified from rows</td>
+<td><code>lookout/db/</code></td>
+</tr>
+<tr class="even">
+<td>ML-DSA-65 audit checkpoints, ML-KEM-768 credential sealing</td>
+<td><code>crypto.py</code>, <code>audit.py</code></td>
+</tr>
+<tr class="odd">
+<td>Template / Gemini narrator</td>
+<td><code>narrator.py</code></td>
+</tr>
+<tr class="even">
+<td>9 labelled scenarios, including the spec's attack story</td>
+<td><code>scenarios.py</code></td>
+</tr>
+<tr class="odd">
+<td>React + Vite console, 17 pages, WebSocket events for alerts, incidents, risk, messages and sessions</td>
+<td><code>frontend/</code></td>
+</tr>
+<tr class="even">
+<td>Section-by-section spec coverage</td>
+<td><code>docs/spec-coverage.md</code></td>
+</tr>
+<tr class="odd">
+<td>Docker Compose + nginx; CI with PostgreSQL and image builds</td>
+<td><code>docker-compose.yml</code>, <code>.github/workflows/ci.yml</code></td>
+</tr>
+<tr class="even">
+<td>310 tests</td>
+<td><code>backend/tests/</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="tech-stack-at-a-glance">Tech Stack at a Glance</h3>
+<pre><code>Backend   Python 3.12 · FastAPI · Pydantic v2 · SQLAlchemy 2 · PostgreSQL 16 · PyJWT
+ML        scikit-learn (IsolationForest, RandomForest, TF-IDF + logistic regression) · SHAP · pandas · numpy · joblib
+Crypto    ML-DSA-65 (dilithium-py) · ML-KEM-768 (kyber-py) · AES-256-GCM · HKDF · Ed25519/X25519 fallback
+Frontend  React 19 · Vite · React Router 7 · Tailwind CSS 4 · Recharts · Axios · lucide-react
+Deploy    Docker Compose · nginx
+Testing   pytest (310) · Playwright (browser checks, run from outside the repo) · GitHub Actions</code></pre>
+</body>
+</html>
